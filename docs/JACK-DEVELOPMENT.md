@@ -68,40 +68,59 @@ manually delete pending operation records.
 
 ## Jack theme layer
 
-The Jack look (Platinum · Champagne) lives in Jack-owned files. Upstream
+The Jack look (Graphite · 石墨) lives in Jack-owned files: a graphite canvas
+holds the sidebar, and the header and page share one paper sheet. Upstream
 templates and `src/style.css` are not edited, so upstream UI changes merge as-is
 and pick up the theme automatically.
 
 - `frontend/jack/tailwind-theme.js` points the `gray`, `dark`, `primary` and
-  `accent` palettes at `--jack-*` CSS variables. Upstream touches:
+  `accent` palettes at `--jack-*` CSS variables and sets the fonts (`sans`,
+  `mono`, plus a Jack `display` family). Upstream touches:
   `tailwind.config.js` wraps its export in `withJackTheme(...)`, and
   `vite.config.ts` registers `jackTheme(__dirname)`. Keep these the only edits.
   The `frontend/jack/` helpers are JSDoc-typed JavaScript so `vue-tsc -b` does
   not emit build output beside them; keep them as `.js`.
-- `frontend/src/jack/theme/fonts.css` bundles the Hanken Grotesk and Geist Mono
-  Latin subsets (OFL, licences beside the files); Chinese uses system fonts.
+- `frontend/src/jack/theme/fonts.css` bundles the Instrument Sans, Instrument
+  Serif and Geist Mono Latin subsets (OFL, licences beside the files); Chinese
+  uses system fonts.
 - `frontend/src/jack/theme/tokens.css` holds every colour and surface value;
   `components.css` restyles upstream component classes (`.btn`, `.card`,
-  `.input`, `.sidebar-link`, ...). The Vite plugin appends both to
+  `.input`, `.modal-content`, ...). The Vite plugin appends both to
   `src/style.css` before Tailwind runs, so they join the same layers after
   upstream's rules and template utilities still win. Selectors are written as
   `.x, .dark .x` pairs to match the specificity of upstream `dark:` variants.
   Change the look by editing values in `tokens.css`.
-- `frontend/jack/vite-plugin.js` also swaps `AuthLayout.vue` and `HomeView.vue`
-  for `src/jack/layouts/JackAuthLayout.vue` and `src/jack/views/JackHomeView.vue`.
-  Only plain imports are swapped; Vue's SFC sub-requests (`?vue&type=style`)
-  stay with the original, and the build fails if a replaced module ends up
-  importing its own replacement. Login logic stays upstream. Administrator home content and the compact home
-  page still render the upstream `HomeView`. Vitest does not load the plugin, so
-  upstream tests keep testing upstream components.
+- `frontend/jack/vite-plugin.js` swaps `AppLayout.vue`, `AuthLayout.vue` and
+  `HomeView.vue` for the Jack versions in `src/jack/layouts/` and
+  `src/jack/views/`. Only plain imports are swapped; Vue's SFC sub-requests
+  (`?vue&type=style`) stay with the original, and the build fails if a replaced
+  module ends up importing its own replacement. Login logic stays upstream.
+  Administrator home content and the compact home page still render the upstream
+  `HomeView`. Vitest does not load the plugin, so upstream tests keep testing
+  upstream components.
+- `JackAppLayout.vue` composes the upstream `AppSidebar` and `AppHeader` and keeps
+  all of their logic (menus, feature flags, tour anchors, titles, balance, user
+  menu). The sidebar sits in a `.dark` wrapper, so it renders dark in both colour
+  modes. The sheet is the scroll container. The layout mirrors upstream
+  `AppLayout`'s onboarding wiring, so review it when upstream changes that file.
+  `shell.css` styles the composition. It is unlayered and scoped under
+  `.jack-shell`, so it follows upstream utilities. It also resizes
+  `TablePageLayout` for the sheet.
 - `src/jack/__tests__/themeHooks.spec.ts` fails, and `vite build` stops, when an
   upstream sync renames a hooked file, removes a Tailwind directive from
-  `style.css`, changes `AuthLayout` slots or adds props to a replaced component.
-  Fix the Jack side (paths in `vite-plugin.js`, slots in the Jack layout); do not
-  edit upstream files to satisfy the hook.
+  `style.css`, changes a replaced layout's slots or adds props to a replaced
+  component. Fix the Jack side (paths in `vite-plugin.js`, slots in the Jack
+  layout); do not edit upstream files to satisfy the hook.
+- `frontend/jack/style-hooks.js` lists upstream markup the look relies on, such as
+  sidebar classes, the header's `<h1>` and `h-16`, and dashboard figure classes.
+  It also records the reviewed hash of upstream `AppLayout.vue`. When these
+  drift, `node jack/check-style-hooks.js` in `Jack checks` and `vite build` only
+  warn. A styling drift never blocks an upstream sync. Read the warning in the
+  job summary, update the Jack selector or the reviewed hash, and open a normal PR.
 - After a sync that adds UI, look at the new pages in both colour modes.
   Hard-coded colours (hex values, `bg-white`) do not follow the theme; fix a
   visible mismatch with a rule in `components.css`, not in the `.vue` file.
+  Chart.js colours are set in upstream scripts and keep upstream's palette.
 
 ## Deployment and recovery
 

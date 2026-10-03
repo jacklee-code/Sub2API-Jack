@@ -4,11 +4,14 @@
  * Keeps the Jack look out of upstream files so upstream merges stay clean:
  *
  * 1. Appends the Jack theme CSS to `src/style.css` before Tailwind compiles it.
- *    The theme uses `@layer base` / `@layer components`, so its rules land after
- *    upstream's component classes and before utilities, which keeps upstream's
- *    "utilities win" behaviour intact.
+ *    tokens.css and components.css use `@layer base` / `@layer components`, so
+ *    their rules land after upstream's component classes and before utilities,
+ *    which keeps upstream's "utilities win" behaviour intact. shell.css is
+ *    unlayered and scoped to the Jack shell, so it follows the utilities.
  * 2. Swaps a small, fixed set of upstream components for Jack versions at module
  *    resolution time. The Jack files may still import the upstream originals.
+ * 3. Warns (without failing) when upstream markup that the look depends on has
+ *    changed; see style-hooks.js.
  *
  * Only `vite.config.ts` registers this plugin; vitest keeps testing the upstream
  * components unchanged. Plain JS (typed with JSDoc) so `vue-tsc -b` does not emit
@@ -17,11 +20,13 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { normalizePath } from 'vite'
+import { checkJackStyleHooks } from './style-hooks.js'
 
 /** @type {ReadonlyArray<readonly [string, string]>} Upstream module → Jack replacement, relative to the frontend root. */
 export const JACK_COMPONENT_OVERRIDES = [
   ['src/components/layout/AuthLayout.vue', 'src/jack/layouts/JackAuthLayout.vue'],
-  ['src/views/HomeView.vue', 'src/jack/views/JackHomeView.vue']
+  ['src/views/HomeView.vue', 'src/jack/views/JackHomeView.vue'],
+  ['src/components/layout/AppLayout.vue', 'src/jack/layouts/JackAppLayout.vue']
 ]
 
 /** Upstream stylesheet that receives the theme. */
@@ -31,7 +36,8 @@ export const JACK_STYLE_ENTRY = 'src/style.css'
 export const JACK_THEME_STYLES = [
   'src/jack/theme/fonts.css',
   'src/jack/theme/tokens.css',
-  'src/jack/theme/components.css'
+  'src/jack/theme/components.css',
+  'src/jack/theme/shell.css'
 ]
 
 const REQUIRED_STYLE_DIRECTIVES = ['@tailwind base', '@tailwind components', '@tailwind utilities']
@@ -109,6 +115,9 @@ export function jackTheme(root) {
         this.error(
           `[jack-theme] upstream layout changed; update frontend/jack/vite-plugin.js:\n- ${problems.join('\n- ')}`
         )
+      }
+      for (const { file, message } of checkJackStyleHooks(root)) {
+        this.warn(`[jack-theme] ${file}: ${message}`)
       }
     },
 

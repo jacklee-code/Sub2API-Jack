@@ -5,36 +5,39 @@
     upstream layout; only the visual structure differs.
   -->
   <div class="relative grid min-h-screen grid-cols-1 overflow-hidden lg:grid-cols-[1.1fr_1fr]">
-    <aside class="relative hidden flex-col justify-between p-12 lg:flex">
-      <div class="flex min-h-10 items-center gap-3">
-        <template v-if="settingsLoaded">
-          <img :src="siteLogo || '/logo.svg'" alt="Logo" class="jack-brand-mark h-10 w-10 object-contain" />
-          <span class="text-lg font-semibold text-gray-900 dark:text-white">{{ siteName }}</span>
-        </template>
-      </div>
+    <!-- Graphite side panel, like the app shell's canvas; its content renders in dark mode. -->
+    <aside class="jack-canvas relative hidden lg:block">
+      <div class="dark flex h-full flex-col justify-between p-12">
+        <div class="flex min-h-10 items-center gap-3">
+          <template v-if="settingsLoaded">
+            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="jack-brand-mark h-10 w-10 object-contain" />
+            <span class="text-lg font-semibold text-gray-900 dark:text-white">{{ siteName }}</span>
+          </template>
+        </div>
 
-      <div class="max-w-lg">
-        <p class="jack-eyebrow">{{ tagline }}</p>
-        <h2 class="jack-display text-gradient mt-4 text-5xl leading-[1.05]">
-          {{ t('home.heroSubtitle') }}
-        </h2>
-        <p
-          v-if="settingsLoaded"
-          class="mt-5 max-w-md whitespace-pre-wrap text-[15px] leading-7 text-gray-600 dark:text-dark-300"
-        >
-          {{ siteSubtitle }}
+        <div class="max-w-lg">
+          <p class="jack-eyebrow">{{ tagline }}</p>
+          <h2 class="jack-display text-gradient mt-4 text-5xl leading-[1.05]">
+            {{ t('home.heroSubtitle') }}
+          </h2>
+          <p
+            v-if="settingsLoaded"
+            class="mt-5 max-w-md whitespace-pre-wrap text-[15px] leading-7 text-gray-600 dark:text-dark-300"
+          >
+            {{ siteSubtitle }}
+          </p>
+          <ul class="mt-10 grid max-w-md gap-5 border-t border-gray-900/10 pt-6 dark:border-white/10">
+            <li v-for="feature in features" :key="feature.title">
+              <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ feature.title }}</p>
+              <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-dark-400">{{ feature.description }}</p>
+            </li>
+          </ul>
+        </div>
+
+        <p class="text-xs text-gray-400 dark:text-dark-500">
+          &copy; {{ currentYear }} {{ siteName }}. All rights reserved.
         </p>
-        <ul class="mt-10 grid max-w-md gap-5 border-t border-gray-900/10 pt-6 dark:border-white/10">
-          <li v-for="feature in features" :key="feature.title">
-            <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ feature.title }}</p>
-            <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-dark-400">{{ feature.description }}</p>
-          </li>
-        </ul>
       </div>
-
-      <p class="text-xs text-gray-400 dark:text-dark-500">
-        &copy; {{ currentYear }} {{ siteName }}. All rights reserved.
-      </p>
     </aside>
 
     <main class="relative flex items-center justify-center p-4 sm:p-6">

@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -12,6 +13,12 @@ import {
   jackTheme
 } from '../../../jack/vite-plugin.js'
 import { JACK_PALETTES, JACK_SHADES, withJackTheme } from '../../../jack/tailwind-theme.js'
+import {
+  JACK_REVIEWED_UPSTREAM,
+  JACK_STYLE_HOOKS,
+  checkJackStyleHooks,
+  upstreamFingerprint
+} from '../../../jack/style-hooks.js'
 import tailwindConfig from '../../../tailwind.config.js'
 
 const frontendRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -154,5 +161,65 @@ describe('jack tailwind palette', () => {
         expect(tokens).toContain(`--jack-${palette}-${shade}:`)
       }
     }
+  })
+})
+
+describe('jack style hooks (warning only)', () => {
+  function withFakeRoot(files: Record<string, string>, run: (root: string) => void) {
+    const root = mkdtempSync(join(tmpdir(), 'jack-hooks-'))
+    try {
+      for (const [file, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(root, file)), { recursive: true })
+        writeFileSync(join(root, file), content)
+      }
+      run(root)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+
+  it('finds every hook in the current upstream sources', () => {
+    expect(checkJackStyleHooks(frontendRoot)).toEqual([])
+  })
+
+  it('reports each missing hook with its purpose', () => {
+    const [{ file, hooks }] = JACK_STYLE_HOOKS
+    const reviewed = Object.fromEntries(
+      JACK_REVIEWED_UPSTREAM.map((entry) => [entry.file, readFileSync(resolve(frontendRoot, entry.file), 'utf8')])
+    )
+    withFakeRoot({ ...reviewed, [file]: '<template><aside /></template>' }, (root) => {
+      const warnings = checkJackStyleHooks(root).filter((warning) => warning.file === file)
+      expect(warnings).toHaveLength(hooks.length)
+      expect(warnings[0].message).toContain(hooks[0][1])
+    })
+  })
+
+  it('reports a missing upstream file', () => {
+    withFakeRoot({}, (root) => {
+      const files = checkJackStyleHooks(root).map((warning) => warning.file)
+      expect(files).toEqual(JACK_STYLE_HOOKS.map((entry) => entry.file))
+    })
+  })
+
+  it('asks for a review when a mirrored upstream file changes', () => {
+    const [{ file }] = JACK_REVIEWED_UPSTREAM
+    const original = readFileSync(resolve(frontendRoot, file), 'utf8')
+    withFakeRoot({ [file]: `${original}\n<!-- upstream change -->` }, (root) => {
+      const warnings = checkJackStyleHooks(root).filter((warning) => warning.file === file)
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0].message).toContain('changed upstream')
+    })
+  })
+
+  it('ignores line-ending differences when fingerprinting', () => {
+    expect(upstreamFingerprint('a\r\nb\r\n')).toBe(upstreamFingerprint('a\nb\n'))
+  })
+
+  it('warns from the build instead of failing it', () => {
+    const plugin = jackTheme(frontendRoot) as unknown as Record<string, Hook>
+    const context = { error: vi.fn(), warn: vi.fn() }
+    plugin.buildStart.call(context)
+    expect(context.error).not.toHaveBeenCalled()
+    expect(context.warn).not.toHaveBeenCalled()
   })
 })
