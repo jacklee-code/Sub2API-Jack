@@ -19,15 +19,6 @@ Production deployment remains operator-triggered. The panel's update and rollbac
 source is this repository. Docker must preserve the installed executable across
 container recreation; image changes and executable changes are separate actions.
 
-## Implementation checklist
-
-- [x] Fleet storage, transactions, ownership guards, idempotency, cache invalidation
-- [x] Admin interface, adoption preview, membership and quota operations
-- [x] Updater identity, version ordering, release compatibility and persistence
-- [x] Upstream synchronization, CI, releases and maintenance documentation
-- [ ] Isolated integration/browser/update/recovery verification
-- [ ] Production backup, first deployment and initial adoption verification
-
 ## Daily workflow
 
 1. Branch from `main`, implement a feature and add behavior-level tests.
