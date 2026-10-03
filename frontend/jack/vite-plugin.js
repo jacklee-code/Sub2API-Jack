@@ -113,12 +113,26 @@ export function jackTheme(root) {
     },
 
     async resolveId(source, importer, options) {
-      if (!importer || !targetStems.has(stem(stripQuery(source)))) return null
+      // Only plain module imports are swapped. Requests with a query, such as the
+      // `HomeView.vue?vue&type=style` part Vue splits out of an SFC, belong to the
+      // original file; swapping them makes the original import its replacement.
+      if (!importer || source.includes('?') || !targetStems.has(stem(source))) return null
       // Jack replacements are allowed to import the upstream original.
       if (replacements.has(stripQuery(importer))) return null
       const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
-      if (!resolved) return null
-      return overrides.get(stripQuery(resolved.id)) ?? null
+      if (!resolved || resolved.id.includes('?')) return null
+      return overrides.get(normalizePath(resolved.id)) ?? null
+    },
+
+    buildEnd(error) {
+      if (error) return
+      // A replaced upstream module must never depend on its own replacement.
+      for (const [target, replacement] of overrides) {
+        const imported = this.getModuleInfo(target)?.importedIds ?? []
+        if (imported.some((id) => stripQuery(id) === replacement)) {
+          this.error(`[jack-theme] ${target} imports its replacement ${replacement}; check resolveId`)
+        }
+      }
     },
 
     transform(code, id) {
