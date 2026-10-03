@@ -91,7 +91,9 @@ The image switch first pulls the candidate, then stops application writers and
 saves a PostgreSQL custom-format dump, app data, previous executable/image identity,
 and deployment files into `.jack-backups/<UTC timestamp>/` (mode 0700). It starts
 only the application service and requires a healthy container. Failure retains the
-backup and reports its path. It never restores the database automatically.
+backup and reports its path. Before replacing the executable, an installed
+`backup-jack-offsite.py` hook encrypts and verifies the snapshot off-host. A backup
+failure resumes the unchanged old application. Database restoration is never automatic.
 
 For a recovery that requires database restoration, stop the application, restore
 the saved deployment files and previous image, restore the app-data archive into

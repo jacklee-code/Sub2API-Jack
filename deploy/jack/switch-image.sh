@@ -27,10 +27,18 @@ docker cp "$container:$binary" "$backup_dir/sub2api"
 docker exec "$container" "$binary" -version > "$backup_dir/version.txt" 2>&1
 # Quiesce application writers before the final database/data snapshot.
 docker compose stop -t 60 sub2api
-recovery_hint() { echo "Update failed. Backup retained at $backup_dir. See docs/JACK-DEVELOPMENT.md for recovery; database restoration is never automatic." >&2; }
+deployment_changed=false
+recovery_hint() {
+  backup_exit_code=$?
+  if [[ "$deployment_changed" == false ]]; then docker compose start sub2api || true; fi
+  echo "Update failed. Backup retained at $backup_dir. See docs/JACK-DEVELOPMENT.md for recovery; database restoration is never automatic." >&2
+  exit "$backup_exit_code"
+}
 trap recovery_hint ERR
 docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup_dir/database.dump"
 docker run --rm --network none --volumes-from "$container" --entrypoint /bin/sh "$image" -c 'tar -C /app/data -czf - .' > "$backup_dir/app-data.tar.gz"
+if [[ -x ./backup-jack-offsite.py ]]; then ./backup-jack-offsite.py "$backup_dir"; fi
+deployment_changed=true
 docker run --rm --network none --volumes-from "$container" --entrypoint /bin/sh "$image" -c 'mkdir -p /app/data/jack-runtime; cp /app/sub2api /app/data/jack-runtime/sub2api.next; chmod 755 /app/data/jack-runtime/sub2api.next; chown -R sub2api:sub2api /app/data/jack-runtime; mv /app/data/jack-runtime/sub2api.next /app/data/jack-runtime/sub2api'
 python3 - "$image" <<'PY'
 import json, os, sys
