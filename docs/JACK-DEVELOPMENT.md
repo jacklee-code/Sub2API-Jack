@@ -169,8 +169,9 @@ work and new keys appear in 繁中 automatically.
   key still exists upstream.
 - Not converted: Chinese hard-coded in upstream templates, server-provided text
   (site settings, compliance phrases) and backend e-mails, which treat any
-  `zh*` `Accept-Language` as Simplified. Titles use Noto Serif SC; characters
-  outside its slices fall back to the system serif.
+  `zh*` `Accept-Language` as Simplified. Traditional text renders with the
+  bundled Noto SC faces, which cover every character the converted messages use
+  (glyph shapes follow the mainland standard); no TC font is bundled.
 
 ## Deployment and recovery
 
