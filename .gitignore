@@ -163,6 +163,9 @@ issues/
 /plugins/
 
 !docs/JACK-DEVELOPMENT.md
+# Share Jack's harness entrypoints despite the upstream ignores above.
+!/AGENTS.md
+!/CLAUDE.md
 /.jack-dist/
 /.jack-build/
 
