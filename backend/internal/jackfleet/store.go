@@ -23,6 +23,7 @@ type Store struct {
 func NewStore(db *sql.DB) *Store { return &Store{DB: db, Now: time.Now} }
 
 type Member struct {
+	StartsAt       time.Time  `json:"starts_at"`
 	UserID         int64      `json:"user_id"`
 	Email          string     `json:"email"`
 	Username       string     `json:"username"`
@@ -122,7 +123,7 @@ func (s *Store) Preview(ctx context.Context, groupID int64) ([]Member, error) {
 	return s.members(ctx, groupID, nil)
 }
 func (s *Store) members(ctx context.Context, groupID int64, fleetID *int64) ([]Member, error) {
-	query := `SELECT s.user_id,u.email,COALESCE(u.username,''),u.role,s.id,COALESCE(m.independent_expiry,false),COALESCE(m.active,true),s.expires_at,s.status,s.daily_usage_usd,s.weekly_usage_usd,s.monthly_usage_usd,s.daily_window_start,s.weekly_window_start,s.monthly_window_start,(SELECT count(*) FROM api_keys k WHERE k.user_id=s.user_id AND k.group_id=s.group_id AND k.deleted_at IS NULL),m.fleet_id FROM user_subscriptions s JOIN users u ON u.id=s.user_id LEFT JOIN jack_fleet_members m ON m.subscription_id=s.id WHERE s.group_id=$1 AND s.deleted_at IS NULL AND u.deleted_at IS NULL`
+	query := `SELECT s.user_id,u.email,COALESCE(u.username,''),u.role,s.id,COALESCE(m.independent_expiry,false),COALESCE(m.active,true),s.starts_at,s.expires_at,s.status,s.daily_usage_usd,s.weekly_usage_usd,s.monthly_usage_usd,s.daily_window_start,s.weekly_window_start,s.monthly_window_start,(SELECT count(*) FROM api_keys k WHERE k.user_id=s.user_id AND k.group_id=s.group_id AND k.deleted_at IS NULL),m.fleet_id FROM user_subscriptions s JOIN users u ON u.id=s.user_id LEFT JOIN jack_fleet_members m ON m.subscription_id=s.id WHERE s.group_id=$1 AND s.deleted_at IS NULL AND u.deleted_at IS NULL`
 	args := []any{groupID}
 	if fleetID != nil {
 		query += ` AND m.fleet_id=$2`
@@ -136,7 +137,7 @@ func (s *Store) members(ctx context.Context, groupID int64, fleetID *int64) ([]M
 	result := []Member{}
 	for rows.Next() {
 		var m Member
-		if err = rows.Scan(&m.UserID, &m.Email, &m.Username, &m.Role, &m.SubscriptionID, &m.Independent, &m.Active, &m.ExpiresAt, &m.Status, &m.Daily, &m.Weekly, &m.Monthly, &m.DailyStart, &m.WeeklyStart, &m.MonthlyStart, &m.KeyCount, &m.OwnerFleetID); err != nil {
+		if err = rows.Scan(&m.UserID, &m.Email, &m.Username, &m.Role, &m.SubscriptionID, &m.Independent, &m.Active, &m.StartsAt, &m.ExpiresAt, &m.Status, &m.Daily, &m.Weekly, &m.Monthly, &m.DailyStart, &m.WeeklyStart, &m.MonthlyStart, &m.KeyCount, &m.OwnerFleetID); err != nil {
 			return nil, err
 		}
 		result = append(result, m)

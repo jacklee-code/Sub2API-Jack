@@ -63,3 +63,12 @@ func (s *APIKeyService) InvalidateFleetAuthCache(ctx context.Context, userID int
 	}
 	return nil
 }
+
+// NormalizeFleetSubscriptionView uses the same read-only window normalization as
+// the upstream subscription page. Stored counters and historical rows are untouched.
+func NormalizeFleetSubscriptionView(sub UserSubscription) UserSubscription {
+	rows := []UserSubscription{sub}
+	normalizeExpiredWindows(rows)
+	normalizeSubscriptionStatus(rows)
+	return rows[0]
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 type jackReleaseClient struct {
@@ -47,4 +48,17 @@ func TestJackRuntimeGateAndRollbackBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, versions)
 	require.Error(t, svc.Rollback())
+}
+
+func TestFleetSubscriptionDisplayNormalizesWithoutChangingHistory(t *testing.T) {
+	now := time.Now()
+	old := now.AddDate(0, -2, 0)
+	sub := UserSubscription{StartsAt: old, ExpiresAt: now.AddDate(0, 0, 30), Status: SubscriptionStatusActive, DailyWindowStart: &old, WeeklyWindowStart: &old, MonthlyWindowStart: &old, DailyUsageUSD: 10, WeeklyUsageUSD: 20, MonthlyUsageUSD: 30}
+	view := NormalizeFleetSubscriptionView(sub)
+	require.Zero(t, view.DailyUsageUSD)
+	require.Zero(t, view.WeeklyUsageUSD)
+	require.Zero(t, view.MonthlyUsageUSD)
+	require.Equal(t, 10.0, sub.DailyUsageUSD)
+	require.Equal(t, 20.0, sub.WeeklyUsageUSD)
+	require.Equal(t, 30.0, sub.MonthlyUsageUSD)
 }

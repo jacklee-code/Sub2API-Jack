@@ -91,6 +91,9 @@ func (h *FleetHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	for i := range fleets {
+		normalizeFleetMembers(fleets[i].Members)
+	}
 	response.Success(c, fleets)
 }
 func (h *FleetHandler) Preview(c *gin.Context) {
@@ -104,6 +107,7 @@ func (h *FleetHandler) Preview(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	normalizeFleetMembers(members)
 	response.Success(c, members)
 }
 func (h *FleetHandler) Mutate(c *gin.Context) {
@@ -125,4 +129,12 @@ func (h *FleetHandler) Mutate(c *gin.Context) {
 		log.Printf("[Fleet] committed operation awaiting cache synchronization: %v", err)
 	}
 	response.Success(c, result)
+}
+
+func normalizeFleetMembers(members []jackfleet.Member) {
+	for i := range members {
+		m := &members[i]
+		normalized := service.NormalizeFleetSubscriptionView(service.UserSubscription{StartsAt: m.StartsAt, ExpiresAt: m.ExpiresAt, Status: m.Status, DailyWindowStart: m.DailyStart, WeeklyWindowStart: m.WeeklyStart, MonthlyWindowStart: m.MonthlyStart, DailyUsageUSD: m.Daily, WeeklyUsageUSD: m.Weekly, MonthlyUsageUSD: m.Monthly})
+		m.Daily, m.Weekly, m.Monthly, m.Status = normalized.DailyUsageUSD, normalized.WeeklyUsageUSD, normalized.MonthlyUsageUSD, normalized.Status
+	}
 }
