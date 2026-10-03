@@ -104,7 +104,8 @@ body:has(.jack-shell) {
 .jack-shell .jack-toolbar h1 {
   font-family: theme('fontFamily.display');
   font-size: 2.125rem;
-  font-weight: 400;
+  font-weight: 500;
+  font-synthesis: none;
   line-height: 1.1;
   letter-spacing: -0.01em;
   color: var(--jack-ink);
@@ -156,7 +157,8 @@ body:has(.jack-shell) {
 .jack-rail .sidebar-brand-title {
   font-family: theme('fontFamily.display');
   font-size: 1.3125rem;
-  font-weight: 400;
+  font-weight: 500;
+  font-synthesis: none;
   letter-spacing: 0;
   color: var(--jack-rail-strong);
 }
@@ -223,7 +225,8 @@ body:has(.jack-shell) {
 .jack-shell .card p.text-xl.font-bold {
   font-family: theme('fontFamily.display');
   font-size: 1.75rem;
-  font-weight: 400;
+  font-weight: 500;
+  font-synthesis: none;
   line-height: 1.15;
   letter-spacing: -0.01em;
 }
