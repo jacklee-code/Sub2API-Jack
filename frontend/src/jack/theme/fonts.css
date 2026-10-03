@@ -4,8 +4,8 @@
  * Latin subsets from Fontsource 5.3.0, SIL Open Font License 1.1 (see
  * fonts/LICENSE-*.txt). Instrument Sans is the UI face, Instrument Serif sets
  * page titles and headline figures, Geist Mono sets code and tabular numbers.
- * Chinese text falls outside the unicode-range and keeps using the system font
- * stack declared in frontend/jack/tailwind-theme.js.
+ * Chinese text falls outside these unicode-ranges and uses the Noto Serif SC /
+ * Noto Sans SC slices from fonts-cjk.css (stacks in frontend/jack/tailwind-theme.js).
  *
  * Appended to src/style.css by the jack-theme Vite plugin; URLs use the `@`
  * alias because the CSS is compiled as part of style.css.

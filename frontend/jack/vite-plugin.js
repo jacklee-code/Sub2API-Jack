@@ -10,6 +10,8 @@
  *    unlayered and scoped to the Jack shell, so it follows the utilities.
  * 2. Swaps a small, fixed set of upstream components for Jack versions at module
  *    resolution time. The Jack files may still import the upstream originals.
+ *    Package imports listed in JACK_MODULE_WRAPPERS (chart.js) resolve to a Jack
+ *    wrapper that re-exports the package and adds Jack defaults.
  * 3. Warns (without failing) when upstream markup that the look depends on has
  *    changed; see style-hooks.js.
  *
@@ -29,12 +31,20 @@ export const JACK_COMPONENT_OVERRIDES = [
   ['src/components/layout/AppLayout.vue', 'src/jack/layouts/JackAppLayout.vue']
 ]
 
+/**
+ * @type {ReadonlyArray<readonly [string, string]>} Package import → Jack wrapper module.
+ * Upstream code that imports the package gets the wrapper; the wrapper's own
+ * import of the package resolves to the real one.
+ */
+export const JACK_MODULE_WRAPPERS = [['chart.js', 'src/jack/charts/chartjs.ts']]
+
 /** Upstream stylesheet that receives the theme. */
 export const JACK_STYLE_ENTRY = 'src/style.css'
 
 /** Theme stylesheets, appended in this order. */
 export const JACK_THEME_STYLES = [
   'src/jack/theme/fonts.css',
+  'src/jack/theme/fonts-cjk.css',
   'src/jack/theme/tokens.css',
   'src/jack/theme/components.css',
   'src/jack/theme/shell.css'
@@ -63,6 +73,9 @@ export function checkJackThemeTargets(root) {
   for (const [target, replacement] of JACK_COMPONENT_OVERRIDES) {
     if (!existsSync(resolve(root, target))) problems.push(`override target is missing: ${target}`)
     if (!existsSync(resolve(root, replacement))) problems.push(`override replacement is missing: ${replacement}`)
+  }
+  for (const [, wrapper] of JACK_MODULE_WRAPPERS) {
+    if (!existsSync(resolve(root, wrapper))) problems.push(`module wrapper is missing: ${wrapper}`)
   }
   const entry = resolve(root, JACK_STYLE_ENTRY)
   if (!existsSync(entry)) {
@@ -104,6 +117,9 @@ export function jackTheme(root) {
   )
   const replacements = new Set(overrides.values())
   const targetStems = new Set(JACK_COMPONENT_OVERRIDES.map(([target]) => stem(target)))
+  const wrappers = new Map(
+    JACK_MODULE_WRAPPERS.map(([specifier, wrapper]) => [specifier, normalizePath(resolve(root, wrapper))])
+  )
 
   return {
     name: 'jack-theme',
@@ -122,6 +138,8 @@ export function jackTheme(root) {
     },
 
     async resolveId(source, importer, options) {
+      const wrapper = wrappers.get(source)
+      if (wrapper) return importer && stripQuery(importer) !== wrapper ? wrapper : null
       // Only plain module imports are swapped. Requests with a query, such as the
       // `HomeView.vue?vue&type=style` part Vue splits out of an SFC, belong to the
       // original file; swapping them makes the original import its replacement.

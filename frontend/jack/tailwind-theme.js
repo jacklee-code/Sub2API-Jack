@@ -7,8 +7,15 @@
  * actual colours live in `src/jack/theme/tokens.css`. Opacity modifiers such as
  * `bg-gray-300/50` keep working through `<alpha-value>`.
  *
+ * Tailwind's status and accent families (red, amber, blue, ...) are replaced
+ * with their mineral versions from palette.js, and the blue-tinted neutrals
+ * (slate, zinc, ...) follow the Jack greys, so upstream badges and icon chips
+ * match the theme without template changes.
+ *
  * Usage (frontend/tailwind.config.js): `export default withJackTheme({ ... })`.
  */
+import tailwindColors from 'tailwindcss/colors.js'
+import { JACK_MUTED_FAMILIES, JACK_NEUTRAL_FAMILIES, jackMute } from './palette.js'
 
 export const JACK_PALETTES = ['gray', 'dark', 'primary', 'accent']
 export const JACK_SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
@@ -19,20 +26,27 @@ export function jackPalette(name) {
   )
 }
 
-const JACK_FONT_SANS = ['"Instrument Sans"']
+// Latin glyphs come from the Instrument faces; Chinese from the bundled Noto SC
+// faces (src/jack/theme/fonts-cjk.css), so every platform renders the same.
+const JACK_FONT_SANS = ['"Instrument Sans"', '"Noto Sans SC Variable"']
 const JACK_FONT_MONO = ['"Geist Mono"']
-// Page titles and headline figures. CJK text uses a system serif where one exists
-// and otherwise the sans stack, so Windows never falls back to a bitmap-era Song face.
-export const JACK_FONT_DISPLAY = [
-  '"Instrument Serif"',
-  '"Songti SC"',
-  '"Noto Serif CJK SC"',
-  '"Noto Serif SC"',
-  '"Source Han Serif SC"',
-  '"PingFang SC"',
-  '"Microsoft YaHei"',
-  'serif'
-]
+// Page titles and headline figures.
+export const JACK_FONT_DISPLAY = ['"Instrument Serif"', '"Noto Serif SC Variable"', 'serif']
+
+/**
+ * Mineral versions of Tailwind's status and accent families.
+ * @returns {Record<string, Record<string, string>>}
+ */
+export function jackMutedColors() {
+  const colors = /** @type {Record<string, Record<string, string>>} */ (tailwindColors)
+  return Object.fromEntries([
+    ...JACK_MUTED_FAMILIES.map((family) => [
+      family,
+      Object.fromEntries(Object.entries(colors[family]).map(([shade, value]) => [shade, jackMute(value)]))
+    ]),
+    ...JACK_NEUTRAL_FAMILIES.map((family) => [family, jackPalette('gray')])
+  ])
+}
 
 /**
  * @param {import('tailwindcss').Config} config
@@ -50,6 +64,7 @@ export function withJackTheme(config) {
       extend: {
         ...extend,
         colors: {
+          ...jackMutedColors(),
           ...(extend.colors ?? {}),
           ...Object.fromEntries(JACK_PALETTES.map((name) => [name, jackPalette(name)]))
         },

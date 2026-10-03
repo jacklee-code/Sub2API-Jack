@@ -81,8 +81,19 @@ and pick up the theme automatically.
   The `frontend/jack/` helpers are JSDoc-typed JavaScript so `vue-tsc -b` does
   not emit build output beside them; keep them as `.js`.
 - `frontend/src/jack/theme/fonts.css` bundles the Instrument Sans, Instrument
-  Serif and Geist Mono Latin subsets (OFL, licences beside the files); Chinese
-  uses system fonts.
+  Serif and Geist Mono Latin subsets. `fonts-cjk.css` bundles Noto Serif SC
+  (titles) and Noto Sans SC (text) as unicode-range slices, so a page only
+  fetches the slices for its characters. That is about 1 MB on a first visit,
+  then cached. The slices add about 11 MB to the image. Fonts are OFL; the
+  licences are beside the files.
+  `node jack/vendor-cjk-fonts.mjs` regenerates the slices from the Fontsource
+  packages (usage in the script header). It skips Latin and emoji ranges, so
+  emoji keep their colour glyphs.
+- `frontend/jack/palette.js` mutes upstream's status and accent colours. Its
+  `jackMute` keeps OKLab lightness and hue and halves chroma.
+  `tailwind-theme.js` applies it to Tailwind's red, amber, blue, ... families,
+  and points slate, zinc, neutral and stone at the Jack greys. Badges and icon
+  chips follow without template changes.
 - `frontend/src/jack/theme/tokens.css` holds every colour and surface value;
   `components.css` restyles upstream component classes (`.btn`, `.card`,
   `.input`, `.modal-content`, ...). The Vite plugin appends both to
@@ -92,7 +103,7 @@ and pick up the theme automatically.
   Change the look by editing values in `tokens.css`.
 - `frontend/jack/vite-plugin.js` swaps `AppLayout.vue`, `AuthLayout.vue` and
   `HomeView.vue` for the Jack versions in `src/jack/layouts/` and
-  `src/jack/views/`. Only plain imports are swapped; Vue's SFC sub-requests
+  `src/jack/views/`, and wraps the `chart.js` package. Only plain imports are swapped; Vue's SFC sub-requests
   (`?vue&type=style`) stay with the original, and the build fails if a replaced
   module ends up importing its own replacement. Login logic stays upstream.
   Administrator home content and the compact home page still render the upstream
@@ -120,7 +131,10 @@ and pick up the theme automatically.
 - After a sync that adds UI, look at the new pages in both colour modes.
   Hard-coded colours (hex values, `bg-white`) do not follow the theme; fix a
   visible mismatch with a rule in `components.css`, not in the `.vue` file.
-  Chart.js colours are set in upstream scripts and keep upstream's palette.
+  Chart.js paints on a canvas, so CSS cannot recolour it. The plugin resolves
+  upstream `import ... from 'chart.js'` to `src/jack/charts/chartjs.ts`. That
+  wrapper re-exports chart.js and registers `jackChartTheme`, which passes
+  dataset, axis and legend colours through `jackMute` before each update.
 
 ## Deployment and recovery
 

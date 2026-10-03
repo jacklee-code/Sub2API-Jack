@@ -60,6 +60,10 @@ export const JACK_STYLE_HOOKS = [
   {
     file: 'src/components/user/dashboard/UserDashboardStats.vue',
     hooks: [['text-xl font-bold', 'serif headline figures']]
+  },
+  {
+    file: 'package.json',
+    hooks: [['"chart.js"', 'charts take the mineral palette through src/jack/charts/chartjs.ts']]
   }
 ]
 
