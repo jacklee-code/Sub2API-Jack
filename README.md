@@ -9,7 +9,11 @@ Linux ARM64/AMD64 binaries and GHCR images; production updates remain manual.
 
 - [Jack releases](https://github.com/jacklee-code/Sub2API-Jack/releases)
 - [Development, deployment and recovery guide](docs/JACK-DEVELOPMENT.md)
+- [Shared workflow for people and coding agents](CONTRIBUTING.md)
 - Source: `jacklee-code/Sub2API-Jack`; image: `ghcr.io/jacklee-code/sub2api-jack`
+
+Maintained by `jacklee-code`; external PRs are not accepted. Owner-authorized
+GitHub Actions handle upstream integration and release publication.
 
 Use the Jack deployment guide and release source when running this downstream.
 The upstream project documentation is preserved below.

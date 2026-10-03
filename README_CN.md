@@ -6,7 +6,11 @@
 
 - [Jack 版本發布](https://github.com/jacklee-code/Sub2API-Jack/releases)
 - [開發、部署與還原指南](docs/JACK-DEVELOPMENT.md)
+- [適用於所有人與 coding agent 的共用開發流程](CONTRIBUTING.md)
 - 原始碼：`jacklee-code/Sub2API-Jack`；映像：`ghcr.io/jacklee-code/sub2api-jack`
+
+本 repo 由 `jacklee-code` 維護，不接受外部 PR；上游整合及發佈由 owner 授權的
+GitHub Actions 執行。
 
 部署本二次開發版時，請使用 Jack 指南與版本來源。以下保留上游專案原有文件。
 

@@ -17,6 +17,10 @@ jobs:
       ref: ${{ github.sha }}
   publish:
     needs: verify
+    if: >-
+      github.repository == 'jacklee-code/Sub2API-Jack' &&
+      github.ref == 'refs/heads/main' &&
+      (github.actor == 'jacklee-code' || github.actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

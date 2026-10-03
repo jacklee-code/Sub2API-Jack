@@ -36,6 +36,15 @@ The `.jack/upstream.json` commit must remain an ancestor of every release. Prese
 upstream import/module paths; changing them would create unnecessary merge churn.
 Never overwrite release tags. A failed publication can resume its unpublished tag.
 
+## Shared contributor workflow
+
+[CONTRIBUTING.md](../CONTRIBUTING.md) is the common development, PR, release and
+maintenance workflow for people and coding agents. It defines owner-only access,
+automation boundaries, fresh-clone setup, validation and failure handling.
+[AGENTS.md](../AGENTS.md) points agents to the same workflow; harness adapters must
+not maintain separate release rules. This guide contains the implementation and
+recovery details referenced by that workflow.
+
 ## Fleet behavior
 
 Each group has at most one live fleet. Membership owns the subscription even after
