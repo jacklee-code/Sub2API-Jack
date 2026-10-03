@@ -1,3 +1,21 @@
+# Sub2API-Jack
+
+This downstream adds **fleet management** to Sub2API: shared subscription expiry,
+explicit independent expiry for selected members, membership moves with API key
+rebinding, and fleet-wide quota resets. Existing subscription IDs and usage are preserved.
+
+Official **stable releases are merged** through checked PRs. Jack releases publish
+Linux ARM64/AMD64 binaries and GHCR images; production updates remain manual.
+
+- [Jack releases](https://github.com/jacklee-code/Sub2API-Jack/releases)
+- [Development, deployment and recovery guide](docs/JACK-DEVELOPMENT.md)
+- Source: `jacklee-code/Sub2API-Jack`; image: `ghcr.io/jacklee-code/sub2api-jack`
+
+Use the Jack deployment guide and release source when running this downstream.
+The upstream project documentation is preserved below.
+
+---
+
 <div align="center">
 
 <img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
