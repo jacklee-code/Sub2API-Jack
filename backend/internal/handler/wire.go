@@ -11,6 +11,7 @@ import (
 
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
+	fleetHandler *admin.FleetHandler,
 	dashboardHandler *admin.DashboardHandler,
 	userHandler *admin.UserHandler,
 	groupHandler *admin.GroupHandler,
@@ -52,11 +53,13 @@ func ProvideAdminHandlers(
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 	claudeResetCredits *service.ClaudeResetCreditService,
 ) *AdminHandlers {
+	fleetHandler.AttachSubscriptions(subscriptionHandler)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)
 	accountHandler.SetClaudeResetCreditService(claudeResetCredits)
 	return &AdminHandlers{
+		Fleet:                  fleetHandler,
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
 		Group:                  groupHandler,
@@ -274,6 +277,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewOpsHandler,
 	ProvideSystemHandler,
 	admin.NewSubscriptionHandler,
+	admin.NewFleetHandler,
 	admin.NewUsageHandler,
 	admin.NewUserAttributeHandler,
 	admin.NewErrorPassthroughHandler,

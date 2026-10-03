@@ -1,0 +1,73 @@
+name: Jack checks
+on:
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: go test -tags=unit ./...
+        working-directory: backend
+      - run: go test -tags=integration ./...
+        working-directory: backend
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm run lint:check && pnpm run test:run && pnpm run build
+        working-directory: frontend
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - run: python3 -m unittest discover -s scripts/jack -p 'test_*.py'
+      - run: bash -n deploy/jack/switch-image.sh && sh -n deploy/jack/entrypoint.sh
+      - run: test ! -f .jack/upstream-conflict.md
+      - run: python3 scripts/jack/release.py manifest --version "$(python3 scripts/jack/release.py next-version)"
+  verified:
+    needs: [backend, frontend, deployment]
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    permissions:
+      statuses: write
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          BACKEND: ${{ needs.backend.result }}
+          FRONTEND: ${{ needs.frontend.result }}
+          DEPLOYMENT: ${{ needs.deployment.result }}
+        run: |
+          state=failure
+          if [[ "$BACKEND" == success && "$FRONTEND" == success && "$DEPLOYMENT" == success ]]; then state=success; fi
+          gh api "repos/$REPO/statuses/$SHA" -f state="$state" -f context='Jack verified' -f description='Backend, frontend, and deployment checks'
+          [[ "$state" == success ]]

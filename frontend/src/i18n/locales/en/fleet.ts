@@ -1,0 +1,28 @@
+export default {
+  fleet: {
+    imageRequired: 'This release needs a Docker runtime update. Run this command in the deployment directory.',
+    title: 'Fleet Management', description: 'Manage members, shared expiry dates and subscription quotas',
+    create: 'Create fleet', empty: 'Create your first fleet', emptyHint: 'Bind an existing subscription group to manage its members together.',
+    name: 'Fleet name', group: 'Subscription group', expiry: 'Shared expiry', timezone: 'All dates use Singapore time (UTC+8)',
+    members: 'Members', fleets: 'Fleets', add: 'Add members', remove: 'Remove member', transfer: 'Move member',
+    reset: 'Reset quota', resetAll: 'Reset all fleets', adjust: 'Adjust expiry', extend30: 'Add 30 days',
+    independent: 'Independent expiry', inherited: 'Follow fleet', memberExpiry: 'Member expiry', rename: 'Rename', archive: 'Archive fleet',
+    daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', expired: 'Expired', active: 'Active',
+    search: 'Search name or email', noMembers: 'No members yet', dragHint: 'Drag a member onto another fleet to move them, or use the move button beside their name.',
+    preview: 'Adoption preview', previewHint: 'Selecting a member adopts their existing subscription without changing its ID or usage. Select independent expiry to keep their individual date.',
+    oldExpiry: 'Current expiry', newExpiry: 'Expiry after adoption', selected: 'Selected members', target: 'Destination fleet',
+    transferHint: 'Leave the source fleet and join the destination. API keys bound to the source group move too; their key strings and individual limits stay the same.',
+    removeHint: 'Revoke this fleet access and preserve usage history. Other subscriptions stay unchanged. API keys are not rebound automatically.',
+    resetHint: 'Reset current managed members only, including independent-expiry members. This does not renew subscriptions or reset upstream GPT quota.',
+    expiryHint: 'Independent-expiry members are excluded. Usage is preserved. Positive extensions start at the current expiry, or now if already expired.',
+    archiveHint: 'Only empty fleets can be archived. Historical subscription records are preserved.',
+    byDate: 'Set date', byDays: 'Adjust days', days: 'Days (negative to shorten)', save: 'Confirm', cancel: 'Cancel', refresh: 'Refresh',
+    success: 'Fleet updated', pending: 'Changes saved; authorization cache synchronization is being retried. Refresh shortly.',
+    failed: 'Operation failed; please retry', loading: 'Loading…', choose: 'Select',
+    existing: 'Adopt existing subscription', managed: 'Managed by fleet', noTarget: 'No other fleet on the same platform',
+    independentHint: 'Independent expiry only changes the date policy. Fleet resets still apply and removal still revokes access.',
+    noSelection: 'Select a member', keys: '{count} keys', subscription: 'Subscription #{id}',
+    expiredHint: 'This fleet has expired. New members following its expiry need a renewal before use.', history: '{count} former members',
+    adminHint: 'Administrators may choose independent expiry when needed.', expiryRequired: 'Enter a valid date',
+  }
+}

@@ -12,6 +12,7 @@ export interface ReleaseInfo {
 }
 
 export interface VersionInfo {
+  binary_update_supported?: boolean
   current_version: string
   latest_version: string
   has_update: boolean

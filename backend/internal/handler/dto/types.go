@@ -775,6 +775,8 @@ type UserSubscription struct {
 // AdminUserSubscription 是管理员接口使用的订阅 DTO（包含分配信息/备注等字段）。
 // 注意：普通用户接口不得返回 assigned_by/assigned_at/notes/assigned_by_user 等管理员字段。
 type AdminUserSubscription struct {
+	FleetID                *int64 `json:"fleet_id,omitempty"`
+	FleetIndependentExpiry bool   `json:"fleet_independent_expiry,omitempty"`
 	UserSubscription
 
 	AssignedBy *int64    `json:"assigned_by"`

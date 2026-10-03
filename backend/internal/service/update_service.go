@@ -30,7 +30,7 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	githubRepo     = "jacklee-code/Sub2API-Jack"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -61,6 +61,8 @@ type GitHubReleaseClient interface {
 
 // UpdateService handles software updates
 type UpdateService struct {
+	executablePath string
+	beforeUpdate   func(context.Context) error
 	cache          UpdateCache
 	githubClient   GitHubReleaseClient
 	currentVersion string
@@ -69,7 +71,12 @@ type UpdateService struct {
 
 // NewUpdateService creates a new UpdateService
 func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, version, buildType string) *UpdateService {
+	exePath, _ := os.Executable()
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
+		exePath = resolved
+	}
 	return &UpdateService{
+		executablePath: exePath,
 		cache:          cache,
 		githubClient:   githubClient,
 		currentVersion: version,
@@ -79,13 +86,14 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 
 // UpdateInfo contains update information
 type UpdateInfo struct {
-	CurrentVersion string       `json:"current_version"`
-	LatestVersion  string       `json:"latest_version"`
-	HasUpdate      bool         `json:"has_update"`
-	ReleaseInfo    *ReleaseInfo `json:"release_info,omitempty"`
-	Cached         bool         `json:"cached"`
-	Warning        string       `json:"warning,omitempty"`
-	BuildType      string       `json:"build_type"` // "source" or "release"
+	BinaryUpdateSupported bool         `json:"binary_update_supported"`
+	CurrentVersion        string       `json:"current_version"`
+	LatestVersion         string       `json:"latest_version"`
+	HasUpdate             bool         `json:"has_update"`
+	ReleaseInfo           *ReleaseInfo `json:"release_info,omitempty"`
+	Cached                bool         `json:"cached"`
+	Warning               string       `json:"warning,omitempty"`
+	BuildType             string       `json:"build_type"` // "source" or "release"
 }
 
 // ReleaseInfo contains GitHub release details
@@ -179,6 +187,7 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 // verifies its checksum, and atomically swaps the running binary.
 // Shared by PerformUpdate (latest) and RollbackToVersion (specific older version).
 func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []Asset) error {
+
 	// Find matching archive and checksum for current platform
 	archiveName := s.getArchiveName()
 	var downloadURL string
@@ -197,6 +206,25 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 		return fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
+	manifest, manifestErr := s.checkJackRuntime(ctx, releaseAssets)
+	if manifestErr != nil {
+		return manifestErr
+	}
+	expectedName := fmt.Sprintf("sub2api_%s_%s_%s.tar.gz", manifest.Version, runtime.GOOS, runtime.GOARCH)
+	parsedAsset, parseErr := url.Parse(downloadURL)
+	if parseErr != nil || filepath.Base(parsedAsset.Path) != expectedName || !strings.HasPrefix(parsedAsset.Path, "/"+githubRepo+"/releases/download/v"+manifest.Version+"/") {
+		return fmt.Errorf("archive does not match release manifest")
+	}
+	if checksumURL == "" {
+		return fmt.Errorf("release checksum is required")
+	}
+	if err := validateJackAsset(downloadURL); err != nil {
+		return err
+	}
+	if err := validateJackAsset(checksumURL); err != nil {
+		return err
+	}
+
 	// SECURITY: Validate download URL is from trusted domain
 	if err := validateDownloadURL(downloadURL); err != nil {
 		return fmt.Errorf("invalid download URL: %w", err)
@@ -207,14 +235,11 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 		}
 	}
 
-	// Get current executable path
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
-	}
-	exePath, err = filepath.EvalSymlinks(exePath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve symlinks: %w", err)
+	// Capture the canonical target at startup. After rename, /proc/self/exe
+	// identifies the running inode as .backup until restart.
+	exePath := s.executablePath
+	if exePath == "" {
+		return fmt.Errorf("executable path is unavailable")
 	}
 
 	exeDir := filepath.Dir(exePath)
@@ -251,6 +276,13 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
+	if s.beforeUpdate == nil {
+		return fmt.Errorf("update backup service is unavailable")
+	}
+	if err := s.beforeUpdate(ctx); err != nil {
+		return fmt.Errorf("pre-update backup failed: %w", err)
+	}
+
 	// Atomic replacement using rename pattern:
 	// 1. Rename current -> backup (atomic on Unix)
 	// 2. Rename new -> current (atomic on Unix, same filesystem)
@@ -281,26 +313,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 
 // Rollback restores the previous version
 func (s *UpdateService) Rollback() error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
-	}
-	exePath, err = filepath.EvalSymlinks(exePath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve symlinks: %w", err)
-	}
-
-	backupFile := exePath + ".backup"
-	if _, err := os.Stat(backupFile); os.IsNotExist(err) {
-		return fmt.Errorf("no backup found")
-	}
-
-	// Replace current with backup
-	if err := os.Rename(backupFile, exePath); err != nil {
-		return fmt.Errorf("rollback failed: %w", err)
-	}
-
-	return nil
+	return fmt.Errorf("select a compatible Jack release from the rollback list")
 }
 
 // ListRollbackVersions returns up to maxRollbackVersions release versions that are
@@ -371,7 +384,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 	seen := make(map[string]bool, len(releases))
 	candidates := make([]*GitHubRelease, 0, maxRollbackVersions)
 	for _, r := range releases {
-		if r == nil || r.Draft || r.Prerelease {
+		if r == nil || r.Draft || r.Prerelease || (jackRevision(s.currentVersion) > 0 && (jackRevision(r.TagName) == 0 || jackBase(r.TagName) != jackBase(s.currentVersion))) {
 			continue
 		}
 		v := strings.TrimPrefix(r.TagName, "v")
@@ -382,6 +395,17 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 		if compareVersions(v, s.currentVersion) >= 0 {
 			continue
 		}
+		if jackRevision(s.currentVersion) > 0 {
+			assets := make([]Asset, len(r.Assets))
+			for i, a := range r.Assets {
+				assets[i] = Asset{Name: a.Name, DownloadURL: a.BrowserDownloadURL}
+			}
+			manifest, manifestErr := s.checkJackRuntime(ctx, assets)
+			if manifestErr != nil || manifest.Version != v {
+				continue
+			}
+		}
+
 		seen[v] = true
 		candidates = append(candidates, r)
 	}
@@ -406,6 +430,9 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 	}
 
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	if release.Draft || release.Prerelease || (jackRevision(s.currentVersion) > 0 && jackRevision(latestVersion) == 0) {
+		return nil, fmt.Errorf("latest release is not a stable Jack version")
+	}
 
 	assets := make([]Asset, len(release.Assets))
 	for i, a := range release.Assets {
@@ -416,10 +443,19 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 		}
 	}
 
+	manifest, manifestErr := s.checkJackRuntime(ctx, assets)
+	warning := ""
+	if manifestErr != nil {
+		warning = manifestErr.Error()
+	} else if manifest.Version != latestVersion {
+		return nil, fmt.Errorf("release version does not match its manifest")
+	}
 	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  latestVersion,
-		HasUpdate:      compareVersions(s.currentVersion, latestVersion) < 0,
+		Warning:               warning,
+		BinaryUpdateSupported: manifestErr == nil,
+		CurrentVersion:        s.currentVersion,
+		LatestVersion:         latestVersion,
+		HasUpdate:             compareVersions(s.currentVersion, latestVersion) < 0,
 		ReleaseInfo: &ReleaseInfo{
 			Name:        release.Name,
 			Body:        release.Body,
@@ -608,17 +644,27 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 		return nil, err
 	}
 
+	if cached.ReleaseInfo == nil || !strings.HasPrefix(cached.ReleaseInfo.HTMLURL, "https://github.com/"+githubRepo+"/releases/") {
+		return nil, fmt.Errorf("update cache belongs to a different repository")
+	}
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
 	}
 
+	_, manifestErr := s.checkJackRuntime(ctx, cached.ReleaseInfo.Assets)
+	warning := ""
+	if manifestErr != nil {
+		warning = manifestErr.Error()
+	}
 	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  cached.Latest,
-		HasUpdate:      compareVersions(s.currentVersion, cached.Latest) < 0,
-		ReleaseInfo:    cached.ReleaseInfo,
-		Cached:         true,
-		BuildType:      s.buildType,
+		Warning:               warning,
+		BinaryUpdateSupported: manifestErr == nil,
+		CurrentVersion:        s.currentVersion,
+		LatestVersion:         cached.Latest,
+		HasUpdate:             compareVersions(s.currentVersion, cached.Latest) < 0,
+		ReleaseInfo:           cached.ReleaseInfo,
+		Cached:                true,
+		BuildType:             s.buildType,
 	}, nil
 }
 
@@ -649,6 +695,12 @@ func compareVersions(current, latest string) int {
 		if currentParts[i] > latestParts[i] {
 			return 1
 		}
+	}
+	if jackRevision(current) < jackRevision(latest) {
+		return -1
+	}
+	if jackRevision(current) > jackRevision(latest) {
+		return 1
 	}
 	return 0
 }
