@@ -28,7 +28,11 @@ export const JACK_COMPONENT_OVERRIDES = [
 export const JACK_STYLE_ENTRY = 'src/style.css'
 
 /** Theme stylesheets, appended in this order. */
-export const JACK_THEME_STYLES = ['src/jack/theme/tokens.css', 'src/jack/theme/components.css']
+export const JACK_THEME_STYLES = [
+  'src/jack/theme/fonts.css',
+  'src/jack/theme/tokens.css',
+  'src/jack/theme/components.css'
+]
 
 const REQUIRED_STYLE_DIRECTIVES = ['@tailwind base', '@tailwind components', '@tailwind utilities']
 

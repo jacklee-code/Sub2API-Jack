@@ -78,6 +78,8 @@ and pick up the theme automatically.
   `vite.config.ts` registers `jackTheme(__dirname)`. Keep these the only edits.
   The `frontend/jack/` helpers are JSDoc-typed JavaScript so `vue-tsc -b` does
   not emit build output beside them; keep them as `.js`.
+- `frontend/src/jack/theme/fonts.css` bundles the Hanken Grotesk and Geist Mono
+  Latin subsets (OFL, licences beside the files); Chinese uses system fonts.
 - `frontend/src/jack/theme/tokens.css` holds every colour and surface value;
   `components.css` restyles upstream component classes (`.btn`, `.card`,
   `.input`, `.sidebar-link`, ...). The Vite plugin appends both to
