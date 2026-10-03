@@ -89,7 +89,9 @@ and pick up the theme automatically.
   Change the look by editing values in `tokens.css`.
 - `frontend/jack/vite-plugin.js` also swaps `AuthLayout.vue` and `HomeView.vue`
   for `src/jack/layouts/JackAuthLayout.vue` and `src/jack/views/JackHomeView.vue`.
-  Login logic stays upstream. Administrator home content and the compact home
+  Only plain imports are swapped; Vue's SFC sub-requests (`?vue&type=style`)
+  stay with the original, and the build fails if a replaced module ends up
+  importing its own replacement. Login logic stays upstream. Administrator home content and the compact home
   page still render the upstream `HomeView`. Vitest does not load the plugin, so
   upstream tests keep testing upstream components.
 - `src/jack/__tests__/themeHooks.spec.ts` fails, and `vite build` stops, when an

@@ -74,6 +74,22 @@ describe('jack theme module overrides', () => {
     expect(context.resolve).not.toHaveBeenCalled()
   })
 
+  it('leaves the parts Vue splits out of an upstream SFC with the original file', async () => {
+    // Regression: swapping `HomeView.vue?vue&type=style` made HomeView import
+    // JackHomeView, a cycle that broke the production home page.
+    for (const [target] of JACK_COMPONENT_OVERRIDES) {
+      const styleRequest = `${fromRoot(target)}?vue&type=style&index=0&scoped=abc123&lang.css`
+      const { result, context } = await resolveFrom(styleRequest, target, `${target}?vue&type=style`)
+      expect(result).toBeNull()
+      expect(context.resolve).not.toHaveBeenCalled()
+    }
+  })
+
+  it('does not swap an import that resolves to a query request', async () => {
+    const { result } = await resolveFrom('@/views/HomeView.vue', 'src/router/index.ts', `${homeTarget}?raw`)
+    expect(result).toBeNull()
+  })
+
   it('ignores unrelated imports without resolving them', async () => {
     const { result, context } = await resolveFrom('@/views/auth/LoginView.vue', 'src/router/index.ts', 'src/views/auth/LoginView.vue')
     expect(result).toBeNull()
