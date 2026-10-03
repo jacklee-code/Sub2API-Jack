@@ -1,19 +1,31 @@
 /*
  * Jack theme fonts, bundled locally (no Google Fonts request).
  *
- * Latin subsets of the variable fonts from Fontsource 5.3.0, SIL Open Font
- * License 1.1 (see fonts/LICENSE-*.txt). Chinese text falls outside the
- * unicode-range and keeps using the system font stack.
+ * Latin subsets from Fontsource 5.3.0, SIL Open Font License 1.1 (see
+ * fonts/LICENSE-*.txt). Instrument Sans is the UI face, Instrument Serif sets
+ * page titles and headline figures, Geist Mono sets code and tabular numbers.
+ * Chinese text falls outside the unicode-range and keeps using the system font
+ * stack declared in frontend/jack/tailwind-theme.js.
  *
  * Appended to src/style.css by the jack-theme Vite plugin; URLs use the `@`
  * alias because the CSS is compiled as part of style.css.
  */
 @font-face {
-  font-family: 'Hanken Grotesk';
+  font-family: 'Instrument Sans';
   font-style: normal;
   font-display: swap;
-  font-weight: 100 900;
-  src: url('@/jack/theme/fonts/hanken-grotesk-latin-wght-normal.woff2') format('woff2-variations');
+  font-weight: 400 700;
+  src: url('@/jack/theme/fonts/instrument-sans-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@/jack/theme/fonts/instrument-serif-latin-400-normal.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }

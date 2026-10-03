@@ -1,5 +1,5 @@
 /*
- * Jack theme component overrides: Platinum · Champagne.
+ * Jack theme component overrides: Graphite (石墨).
  *
  * Appended to src/style.css by the jack-theme Vite plugin, so these blocks join
  * Tailwind's layers after upstream's own rules. Each selector is written as a
@@ -7,13 +7,14 @@
  * `dark:` variants: the theme beats upstream component classes in both modes,
  * while utility classes in templates still win, exactly as they do upstream.
  *
- * Only values come from here; colours live in tokens.css.
+ * Only values come from here; colours live in tokens.css. The app shell
+ * (sidebar, toolbar, sheet) is styled in shell.css.
  */
 @layer base {
   body,
   .dark body {
-    background-color: var(--jack-canvas);
-    background-image: var(--jack-noise), var(--jack-glow);
+    background-color: var(--jack-page);
+    background-image: var(--jack-glow);
     background-attachment: fixed;
   }
 }
@@ -22,7 +23,8 @@
   /* ---------- Buttons ---------- */
   .btn,
   .dark .btn {
-    border-radius: 9999px;
+    border-radius: 0.5rem;
+    letter-spacing: -0.005em;
   }
 
   .btn-primary,
@@ -42,29 +44,33 @@
   .btn-secondary,
   .dark .btn-secondary {
     background-color: var(--jack-raised);
-    border-color: transparent;
-    box-shadow: var(--jack-shadow-card);
+    border-color: var(--jack-line-strong);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
   .btn-secondary:hover,
   .dark .btn-secondary:hover {
     background-color: var(--jack-raised-hover);
-    border-color: transparent;
+    border-color: var(--jack-line-strong);
+  }
+
+  .btn-ghost:hover,
+  .dark .btn-ghost:hover {
+    background-color: var(--jack-chip);
   }
 
   /* ---------- Inputs ---------- */
   .input,
   .dark .input {
-    border-radius: 0.75rem;
-    border-color: var(--jack-line);
+    border-radius: 0.5rem;
+    border-color: var(--jack-line-strong);
     background-color: var(--jack-input-bg);
-    box-shadow: 0 1px 2px rgba(40, 30, 15, 0.04);
   }
 
   .input:focus,
   .dark .input:focus {
-    border-color: rgb(var(--jack-primary-500));
-    box-shadow: 0 0 0 4px rgb(var(--jack-primary-500) / 0.15);
+    border-color: var(--jack-ink);
+    box-shadow: 0 0 0 3px rgb(var(--jack-gray-500) / 0.16);
   }
 
   /* Restore the error state, which upstream declares before .input is themed. */
@@ -77,7 +83,7 @@
 
   .input-error:focus,
   .dark .input-error:focus {
-    box-shadow: 0 0 0 4px rgb(239 68 68 / 0.15);
+    box-shadow: 0 0 0 3px rgb(239 68 68 / 0.15);
   }
 
   /* ---------- Cards ---------- */
@@ -87,17 +93,23 @@
   .dark .card-glass,
   .glass-card,
   .dark .glass-card {
-    border-radius: 1.25rem;
-    border-color: transparent;
+    border-radius: 0.75rem;
+    border-color: var(--jack-line);
     background-color: var(--jack-raised);
     box-shadow: var(--jack-shadow-card);
+  }
+
+  .card-hover:hover,
+  .dark .card-hover:hover {
+    box-shadow: var(--jack-shadow-card-hover);
   }
 
   .card-glass,
   .dark .card-glass,
   .glass-card,
   .dark .glass-card {
-    backdrop-filter: blur(24px) saturate(180%);
+    background-color: var(--jack-glass);
+    backdrop-filter: blur(20px) saturate(140%);
   }
 
   .card-header,
@@ -109,18 +121,32 @@
 
   .stat-value,
   .dark .stat-value {
-    letter-spacing: -0.045em;
+    font-family: theme('fontFamily.display');
+    font-weight: 400;
+    font-size: 1.875rem;
+    letter-spacing: -0.01em;
   }
 
   .stat-icon,
-  .dark .stat-icon {
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  .dark .stat-icon,
+  .stat-icon-primary,
+  .dark .stat-icon-primary {
+    background-color: var(--jack-chip);
+    color: var(--jack-ink);
+  }
+
+  .page-title,
+  .dark .page-title {
+    font-family: theme('fontFamily.display');
+    font-weight: 400;
+    font-size: 2rem;
+    letter-spacing: -0.01em;
   }
 
   /* ---------- Tables ---------- */
   .table-container,
   .dark .table-container {
-    border-radius: 0.875rem;
+    border-radius: 0.75rem;
     border-color: var(--jack-line);
   }
 
@@ -128,12 +154,14 @@
   .dark .table th {
     border-color: var(--jack-line);
     background-color: transparent;
+    font-size: 0.75rem;
     font-weight: 500;
+    letter-spacing: 0.06em;
     color: rgb(var(--jack-gray-500));
   }
 
   .dark .table th {
-    color: rgb(var(--jack-dark-300));
+    color: rgb(var(--jack-dark-400));
   }
 
   .table td,
@@ -141,73 +169,32 @@
     border-color: var(--jack-line);
   }
 
-  /* ---------- Sidebar ---------- */
-  .sidebar,
-  .dark .sidebar {
-    border-color: var(--jack-line);
-    background-color: var(--jack-sidebar);
-    backdrop-filter: blur(24px) saturate(180%);
+  /* ---------- Badges, tabs, progress, switches ---------- */
+  .badge,
+  .dark .badge {
+    border-radius: 0.375rem;
   }
 
-  /* The mobile drawer covers page content, so it needs an opaque surface. */
-  @media (max-width: 1023px) {
-    .sidebar,
-    .dark .sidebar {
-      background-color: var(--jack-sidebar-solid);
-    }
-  }
-
-  .sidebar-header,
-  .dark .sidebar-header {
-    border-color: transparent;
-  }
-
-  .sidebar-link,
-  .dark .sidebar-link {
-    border-radius: 0.625rem;
-  }
-
-  .sidebar-link-active,
-  .dark .sidebar-link-active,
-  .sidebar-link-active:hover,
-  .dark .sidebar-link-active:hover {
-    background-color: var(--jack-nav-bg);
-    color: var(--jack-nav-fg);
-    box-shadow: var(--jack-nav-shadow);
-  }
-
-  .sidebar-link-active svg,
-  .dark .sidebar-link-active svg {
-    color: var(--jack-nav-icon);
-  }
-
-  /* ---------- Header ---------- */
-  header.glass h1,
-  .dark header.glass h1 {
-    font-weight: 600;
-    letter-spacing: -0.03em;
-  }
-
-  /* ---------- Tabs, progress, switches ---------- */
   .tabs,
   .dark .tabs {
-    border-radius: 9999px;
-    background-color: rgb(var(--jack-gray-500) / 0.1);
+    border-radius: 0.5625rem;
+    background-color: var(--jack-chip);
   }
 
   .tab,
   .dark .tab {
-    border-radius: 9999px;
+    border-radius: 0.4375rem;
   }
 
   .tab-active,
   .dark .tab-active {
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.12);
+    background-color: var(--jack-raised-solid);
+    box-shadow: 0 0 0 1px var(--jack-line), 0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
   .progress,
   .dark .progress {
-    background-color: rgb(var(--jack-gray-500) / 0.12);
+    background-color: var(--jack-chip);
   }
 
   .progress-bar,
@@ -218,7 +205,11 @@
   /* Upstream's `.dark .switch` otherwise hides the active colour in dark mode. */
   .switch-active,
   .dark .switch-active {
-    background-color: rgb(var(--jack-primary-500));
+    background-color: rgb(var(--jack-gray-900));
+  }
+
+  .dark .switch-active {
+    background-color: rgb(var(--jack-primary-400));
   }
 
   /* ---------- Overlays ---------- */
@@ -226,7 +217,7 @@
   .dark .modal-content,
   .dialog-container,
   .dark .dialog-container {
-    border-radius: 1.5rem;
+    border-radius: 1rem;
     border-color: var(--jack-line);
     background-color: var(--jack-raised-solid);
     box-shadow: var(--jack-shadow-modal);
@@ -243,6 +234,14 @@
     border-color: var(--jack-line);
   }
 
+  .modal-title,
+  .dark .modal-title {
+    font-family: theme('fontFamily.display');
+    font-weight: 400;
+    font-size: 1.375rem;
+    letter-spacing: -0.005em;
+  }
+
   .dropdown,
   .dark .dropdown,
   .toast,
@@ -254,18 +253,19 @@
 
   .dropdown,
   .dark .dropdown {
-    border-radius: 0.875rem;
+    border-radius: 0.625rem;
+  }
+
+  .dropdown-item:hover,
+  .dark .dropdown-item:hover {
+    background-color: var(--jack-chip);
   }
 
   /* ---------- Code ---------- */
   .code,
   .dark .code {
-    background-color: rgb(var(--jack-primary-500) / 0.1);
-    color: rgb(var(--jack-primary-700));
-  }
-
-  .dark .code {
-    color: rgb(var(--jack-primary-300));
+    background-color: var(--jack-chip);
+    color: var(--jack-ink);
   }
 
   .code-block,
@@ -275,8 +275,9 @@
 
   /* ---------- Jack layouts (JackAuthLayout, JackHomeView) ---------- */
   .jack-display {
-    font-weight: 600;
-    letter-spacing: -0.05em;
+    font-family: theme('fontFamily.display');
+    font-weight: 400;
+    letter-spacing: -0.015em;
     text-wrap: balance;
     /* CJK headlines break at punctuation instead of mid-phrase. */
     word-break: keep-all;
@@ -285,8 +286,8 @@
 
   .jack-eyebrow {
     font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.22em;
+    font-weight: 500;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--jack-eyebrow);
   }
@@ -302,15 +303,21 @@
   }
 
   .jack-brand-mark {
-    border-radius: 0.75rem;
-    box-shadow: var(--jack-shadow-card);
+    border-radius: 0.5rem;
+    box-shadow: var(--jack-shadow-glow);
+  }
+
+  /* Graphite panel with grain, used by JackAuthLayout's side column. */
+  .jack-canvas {
+    background-color: var(--jack-canvas);
+    background-image: var(--jack-noise), var(--jack-canvas-glow);
   }
 
   .jack-window {
     overflow: hidden;
-    border-radius: 1rem;
+    border-radius: 0.875rem;
     background-color: var(--jack-code-bg);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 40px 80px -36px rgba(15, 12, 8, 0.55);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 40px 80px -36px rgba(10, 11, 13, 0.55);
   }
 
   .jack-window-bar {
@@ -334,7 +341,7 @@
  * needed to win; `!important` mirrors upstream where it uses it.
  */
 
-/* App shell: let the page glow show through the layout background. */
+/* Full-page views that reuse upstream's page background: let the page glow show through. */
 html [class~='min-h-screen'][class~='bg-gray-50'],
 html.dark [class~='min-h-screen'][class~='bg-gray-50'] {
   background-color: transparent;
@@ -383,7 +390,7 @@ html tbody .sticky-col[class] {
 }
 
 html.dark tbody .sticky-col[class] {
-  background-color: rgb(var(--jack-dark-900));
+  background-color: var(--jack-raised);
 }
 
 /* Onboarding tour (styles/onboarding.css) */
@@ -403,7 +410,7 @@ html.dark .theme-tour-popover .driver-popover-footer {
 
 html .theme-tour-popover .driver-popover-next-btn,
 html .theme-tour-popover .driver-popover-next-btn:hover {
-  border-radius: 9999px !important;
+  border-radius: 0.5rem !important;
   background-color: transparent !important;
   background-image: var(--jack-btn-bg) !important;
   color: var(--jack-btn-fg) !important;

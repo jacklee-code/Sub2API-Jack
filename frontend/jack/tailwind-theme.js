@@ -19,8 +19,20 @@ export function jackPalette(name) {
   )
 }
 
-const JACK_FONT_SANS = ['"Hanken Grotesk"']
+const JACK_FONT_SANS = ['"Instrument Sans"']
 const JACK_FONT_MONO = ['"Geist Mono"']
+// Page titles and headline figures. CJK text uses a system serif where one exists
+// and otherwise the sans stack, so Windows never falls back to a bitmap-era Song face.
+export const JACK_FONT_DISPLAY = [
+  '"Instrument Serif"',
+  '"Songti SC"',
+  '"Noto Serif CJK SC"',
+  '"Noto Serif SC"',
+  '"Source Han Serif SC"',
+  '"PingFang SC"',
+  '"Microsoft YaHei"',
+  'serif'
+]
 
 /**
  * @param {import('tailwindcss').Config} config
@@ -44,7 +56,8 @@ export function withJackTheme(config) {
         fontFamily: {
           ...fontFamily,
           sans: [...JACK_FONT_SANS, ...(fontFamily.sans ?? ['system-ui', 'sans-serif'])],
-          mono: [...JACK_FONT_MONO, ...(fontFamily.mono ?? ['ui-monospace', 'monospace'])]
+          mono: [...JACK_FONT_MONO, ...(fontFamily.mono ?? ['ui-monospace', 'monospace'])],
+          display: JACK_FONT_DISPLAY
         },
         boxShadow: {
           ...(extend.boxShadow ?? {}),
