@@ -1,0 +1,152 @@
+/*
+ * Jack theme tokens: Platinum · Champagne.
+ *
+ * `frontend/jack/tailwind-theme.js` points Tailwind's gray / dark / primary /
+ * accent palettes at the `--jack-<palette>-<shade>` channels below, so every
+ * upstream utility class picks up these colours without template changes.
+ * Surface tokens (`--jack-raised`, `--jack-btn-bg`, ...) are read by
+ * components.css. To switch to another look, replace the values in this file.
+ *
+ * Appended to src/style.css by the jack-theme Vite plugin.
+ */
+@layer base {
+  :root {
+    /* Warm porcelain neutrals */
+    --jack-gray-50: 250 249 247;
+    --jack-gray-100: 244 242 238;
+    --jack-gray-200: 231 228 222;
+    --jack-gray-300: 213 208 199;
+    --jack-gray-400: 166 160 149;
+    --jack-gray-500: 120 114 104;
+    --jack-gray-600: 88 83 75;
+    --jack-gray-700: 66 62 56;
+    --jack-gray-800: 41 39 35;
+    --jack-gray-900: 26 25 22;
+    --jack-gray-950: 14 13 12;
+
+    /* Dark-mode surfaces (used through dark:* utilities) */
+    --jack-dark-50: 245 243 238;
+    --jack-dark-100: 232 229 222;
+    --jack-dark-200: 208 204 195;
+    --jack-dark-300: 170 165 155;
+    --jack-dark-400: 130 125 116;
+    --jack-dark-500: 96 92 85;
+    --jack-dark-600: 66 63 58;
+    --jack-dark-700: 44 42 39;
+    --jack-dark-800: 30 29 27;
+    --jack-dark-900: 20 19 18;
+    --jack-dark-950: 12 12 11;
+
+    /* Champagne accent; 600+ keeps white text readable */
+    --jack-primary-50: 252 248 238;
+    --jack-primary-100: 247 238 214;
+    --jack-primary-200: 238 220 175;
+    --jack-primary-300: 226 197 132;
+    --jack-primary-400: 201 163 92;
+    --jack-primary-500: 170 130 64;
+    --jack-primary-600: 140 105 47;
+    --jack-primary-700: 115 86 39;
+    --jack-primary-800: 94 71 34;
+    --jack-primary-900: 78 59 31;
+    --jack-primary-950: 46 34 17;
+
+    --jack-accent-50: var(--jack-gray-50);
+    --jack-accent-100: var(--jack-gray-100);
+    --jack-accent-200: var(--jack-gray-200);
+    --jack-accent-300: var(--jack-gray-300);
+    --jack-accent-400: var(--jack-gray-400);
+    --jack-accent-500: var(--jack-gray-500);
+    --jack-accent-600: var(--jack-gray-600);
+    --jack-accent-700: var(--jack-gray-700);
+    --jack-accent-800: var(--jack-gray-800);
+    --jack-accent-900: var(--jack-gray-900);
+    --jack-accent-950: var(--jack-gray-950);
+
+    /* Page */
+    --jack-canvas: #fbfaf8;
+    --jack-glow: radial-gradient(1200px 520px at 50% -18%, rgba(201, 169, 110, 0.17), transparent 62%),
+      radial-gradient(700px 420px at 100% 40%, rgba(235, 220, 190, 0.28), transparent 70%);
+    --jack-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .03 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --jack-halo: rgba(201, 169, 110, 0.26);
+
+    /* Surfaces */
+    --jack-raised: rgba(255, 255, 255, 0.86);
+    --jack-raised-hover: rgba(255, 255, 255, 0.96);
+    --jack-raised-solid: #ffffff;
+    --jack-glass: rgba(251, 250, 248, 0.62);
+    --jack-sidebar: rgba(255, 255, 255, 0.45);
+    --jack-sidebar-solid: rgba(251, 250, 248, 0.97);
+    --jack-input-bg: rgba(255, 255, 255, 0.72);
+    --jack-line: rgba(40, 30, 15, 0.07);
+    --jack-code-bg: #0d0c0b;
+
+    /* Depth */
+    --jack-shadow-card: 0 0 0 1px rgba(40, 30, 15, 0.045), 0 1px 2px rgba(40, 30, 15, 0.04),
+      0 10px 28px -14px rgba(40, 30, 15, 0.14), 0 36px 72px -36px rgba(40, 30, 15, 0.18);
+    --jack-shadow-card-hover: 0 0 0 1px rgba(40, 30, 15, 0.06), 0 2px 4px rgba(40, 30, 15, 0.05),
+      0 16px 36px -14px rgba(40, 30, 15, 0.2), 0 44px 80px -36px rgba(40, 30, 15, 0.22);
+    --jack-shadow-modal: 0 0 0 1px rgba(40, 30, 15, 0.06), 0 24px 64px -16px rgba(40, 30, 15, 0.3);
+    --jack-shadow-glow: 0 6px 18px -6px rgba(170, 130, 64, 0.45);
+    --jack-shadow-glow-strong: 0 10px 28px -6px rgba(170, 130, 64, 0.6);
+
+    /* Primary button: ink with a champagne edge */
+    --jack-btn-bg: linear-gradient(180deg, #3b3b40 0%, #111113 100%);
+    --jack-btn-hover: linear-gradient(180deg, #4a4a50 0%, #1b1b1e 100%);
+    --jack-btn-fg: #ffffff;
+    --jack-btn-shadow: inset 0 1px 0 rgba(255, 230, 180, 0.28), 0 0 0 1px #0d0b08, 0 2px 4px rgba(0, 0, 0, 0.12),
+      0 10px 22px -10px rgba(40, 25, 0, 0.5);
+
+    /* Sidebar selection */
+    --jack-nav-bg: #ffffff;
+    --jack-nav-fg: rgb(var(--jack-gray-950));
+    --jack-nav-icon: rgb(var(--jack-primary-500));
+    --jack-nav-shadow: 0 0 0 1px rgba(40, 30, 15, 0.05), 0 1px 2px rgba(40, 30, 15, 0.06),
+      0 4px 12px -4px rgba(40, 30, 15, 0.14);
+
+    /* Accents */
+    --jack-chrome: linear-gradient(180deg, #1a1712 0%, #8a7350 100%);
+    --jack-accent-fill: linear-gradient(90deg, rgb(var(--jack-primary-400)), rgb(var(--jack-primary-600)));
+    --jack-eyebrow: rgb(var(--jack-primary-600));
+  }
+
+  .dark {
+    --jack-canvas: #0c0b0a;
+    --jack-glow: radial-gradient(1100px 520px at 50% -20%, rgba(212, 174, 98, 0.14), transparent 62%);
+    --jack-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .025 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --jack-halo: rgba(212, 174, 98, 0.14);
+
+    --jack-raised: rgba(30, 28, 25, 0.72);
+    --jack-raised-hover: rgba(40, 38, 34, 0.8);
+    --jack-raised-solid: #1a1917;
+    --jack-glass: rgba(12, 11, 10, 0.6);
+    --jack-sidebar: rgba(255, 255, 255, 0.02);
+    --jack-sidebar-solid: rgba(16, 15, 14, 0.97);
+    --jack-input-bg: rgba(255, 255, 255, 0.04);
+    --jack-line: rgba(255, 240, 215, 0.08);
+    --jack-code-bg: #080707;
+
+    --jack-shadow-card: inset 0 1px 0 rgba(255, 240, 215, 0.07), 0 0 0 1px rgba(255, 240, 215, 0.06),
+      0 30px 60px -30px rgba(0, 0, 0, 0.9);
+    --jack-shadow-card-hover: inset 0 1px 0 rgba(255, 240, 215, 0.09), 0 0 0 1px rgba(255, 240, 215, 0.1),
+      0 34px 64px -28px rgba(0, 0, 0, 0.95);
+    --jack-shadow-modal: inset 0 1px 0 rgba(255, 240, 215, 0.07), 0 0 0 1px rgba(255, 240, 215, 0.08),
+      0 30px 80px -20px rgba(0, 0, 0, 0.8);
+    --jack-shadow-glow: 0 6px 22px -6px rgba(212, 174, 98, 0.5);
+    --jack-shadow-glow-strong: 0 10px 34px -6px rgba(212, 174, 98, 0.65);
+
+    /* Primary button: champagne metal */
+    --jack-btn-bg: linear-gradient(180deg, #f6e7c1 0%, #d9b46a 50%, #b08840 100%);
+    --jack-btn-hover: linear-gradient(180deg, #faefd2 0%, #e0bd76 50%, #b8914a 100%);
+    --jack-btn-fg: #1b1407;
+    --jack-btn-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(168, 128, 60, 0.6),
+      0 10px 30px -10px rgba(212, 174, 98, 0.5);
+
+    --jack-nav-bg: rgba(255, 255, 255, 0.08);
+    --jack-nav-fg: #ffffff;
+    --jack-nav-icon: rgb(var(--jack-primary-300));
+    --jack-nav-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+    --jack-chrome: linear-gradient(180deg, #fbf1d8 0%, #c9a463 100%);
+    --jack-eyebrow: rgb(var(--jack-primary-300));
+  }
+}

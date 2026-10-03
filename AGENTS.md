@@ -27,6 +27,9 @@ private agent memory is not required. Keep workflow changes in the shared guide.
   `backend/jackmigrations`, `backend/internal/handler/admin/fleet_handler.go`, and
   `frontend/src/views/admin/FleetsView.vue`. Keep upstream integration edits small
   and preserve upstream Go module/import paths.
+- Keep the Jack frontend look in `frontend/jack/` and `frontend/src/jack/`; do not
+  restyle upstream `.vue` files or `src/style.css`. See the theme layer section in
+  `docs/JACK-DEVELOPMENT.md`.
 - Append custom migrations to the separate Jack ledger; never rewrite applied
   migrations. Review data and binary rollback compatibility for persistent changes.
 - Preserve subscription IDs and usage on adoption, history on removal, in-window

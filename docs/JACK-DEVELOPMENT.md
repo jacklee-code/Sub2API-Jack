@@ -66,6 +66,39 @@ The idempotency record commits with the business changes. A cache outage returns
 restart. Retrying the same key does not repeat the business operation. Do not
 manually delete pending operation records.
 
+## Jack theme layer
+
+The Jack look (Platinum · Champagne) lives in Jack-owned files. Upstream
+templates and `src/style.css` are not edited, so upstream UI changes merge as-is
+and pick up the theme automatically.
+
+- `frontend/jack/tailwind-theme.js` points the `gray`, `dark`, `primary` and
+  `accent` palettes at `--jack-*` CSS variables. Upstream touches:
+  `tailwind.config.js` wraps its export in `withJackTheme(...)`, and
+  `vite.config.ts` registers `jackTheme(__dirname)`. Keep these the only edits.
+  The `frontend/jack/` helpers are JSDoc-typed JavaScript so `vue-tsc -b` does
+  not emit build output beside them; keep them as `.js`.
+- `frontend/src/jack/theme/tokens.css` holds every colour and surface value;
+  `components.css` restyles upstream component classes (`.btn`, `.card`,
+  `.input`, `.sidebar-link`, ...). The Vite plugin appends both to
+  `src/style.css` before Tailwind runs, so they join the same layers after
+  upstream's rules and template utilities still win. Selectors are written as
+  `.x, .dark .x` pairs to match the specificity of upstream `dark:` variants.
+  Change the look by editing values in `tokens.css`.
+- `frontend/jack/vite-plugin.js` also swaps `AuthLayout.vue` and `HomeView.vue`
+  for `src/jack/layouts/JackAuthLayout.vue` and `src/jack/views/JackHomeView.vue`.
+  Login logic stays upstream. Administrator home content and the compact home
+  page still render the upstream `HomeView`. Vitest does not load the plugin, so
+  upstream tests keep testing upstream components.
+- `src/jack/__tests__/themeHooks.spec.ts` fails, and `vite build` stops, when an
+  upstream sync renames a hooked file, removes a Tailwind directive from
+  `style.css`, changes `AuthLayout` slots or adds props to a replaced component.
+  Fix the Jack side (paths in `vite-plugin.js`, slots in the Jack layout); do not
+  edit upstream files to satisfy the hook.
+- After a sync that adds UI, look at the new pages in both colour modes.
+  Hard-coded colours (hex values, `bg-white`) do not follow the theme; fix a
+  visible mismatch with a rule in `components.css`, not in the `.vue` file.
+
 ## Deployment and recovery
 
 Copy `deploy/jack/switch-image.sh` into the existing deployment directory and run
