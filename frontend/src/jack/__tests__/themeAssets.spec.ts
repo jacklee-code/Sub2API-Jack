@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import tailwindColors from 'tailwindcss/colors.js'
 import { JACK_MODULE_WRAPPERS, jackTheme } from '../../../jack/vite-plugin.js'
-import { JACK_MUTED_FAMILIES, JACK_NEUTRAL_FAMILIES, jackMute } from '../../../jack/palette.js'
+import { JACK_NEUTRAL_FAMILIES, JACK_UI_FAMILIES, jackScale } from '../../../jack/palette.js'
+import { checkTailwindDefaults } from '../../../jack/style-hooks.js'
 import tailwindConfig from '../../../tailwind.config.js'
 
 const frontendRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -36,21 +37,38 @@ describe('chart.js wrapper', () => {
   })
 })
 
-describe('mineral Tailwind palette', () => {
+describe('Jack 文房 Tailwind palette', () => {
   const colors = tailwindConfig.theme?.extend?.colors as Record<string, Record<string, string>>
-  const defaults = tailwindColors as unknown as Record<string, Record<string, string>>
 
-  it('replaces every status and accent family with its muted version', () => {
-    for (const family of JACK_MUTED_FAMILIES) {
-      for (const [shade, value] of Object.entries(defaults[family])) {
-        expect(colors[family][shade], `${family}-${shade}`).toBe(jackMute(value))
-      }
+  it('replaces every status and accent family with its Jack hue', () => {
+    for (const [family, hue] of Object.entries(JACK_UI_FAMILIES)) {
+      expect(colors[family], family).toEqual(jackScale(hue))
     }
   })
 
   it('points blue-tinted neutrals at the Jack greys', () => {
-    for (const family of JACK_NEUTRAL_FAMILIES) {
+    for (const family of JACK_NEUTRAL_FAMILIES.filter((name) => name !== 'gray')) {
       expect(colors[family][500]).toBe('rgb(var(--jack-gray-500) / <alpha-value>)')
+    }
+  })
+})
+
+describe('Tailwind default colour snapshot', () => {
+  it('matches the installed Tailwind', () => {
+    expect(checkTailwindDefaults(frontendRoot)).toEqual([])
+  })
+
+  it('warns when the installed Tailwind colours differ', () => {
+    const root = mkdtempSync(join(tmpdir(), 'jack-tw-'))
+    try {
+      writeFileSync(join(root, 'package.json'), '{}')
+      mkdirSync(join(root, 'node_modules/tailwindcss'), { recursive: true })
+      writeFileSync(join(root, 'node_modules/tailwindcss/colors.js'), "module.exports = { blue: { 500: '#000000' } }")
+      const [warning] = checkTailwindDefaults(root)
+      expect(warning.file).toBe('jack/tailwind-defaults.js')
+      expect(warning.message).toContain('regenerate')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

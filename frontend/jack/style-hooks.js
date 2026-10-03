@@ -14,7 +14,9 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
+import { TAILWIND_DEFAULTS } from './tailwind-defaults.js'
 
 /**
  * Text that must still appear in each upstream file, with what Jack uses it for.
@@ -111,5 +113,34 @@ export function checkJackStyleHooks(root) {
       warnings.push({ file, message: `changed upstream; review ${review}, then update its hash in frontend/jack/style-hooks.js` })
     }
   }
+  warnings.push(...checkTailwindDefaults(root))
   return warnings
+}
+
+/**
+ * Chart colours are recognised through the static copy in tailwind-defaults.js.
+ * Warns when the installed Tailwind's default colours no longer match it.
+ * @param {string} root
+ * @returns {Array<{ file: string, message: string }>}
+ */
+export function checkTailwindDefaults(root) {
+  let installed
+  try {
+    installed = createRequire(resolve(root, 'package.json'))('tailwindcss/colors')
+  } catch {
+    return []
+  }
+  const changed = []
+  for (const [family, shades] of Object.entries(TAILWIND_DEFAULTS)) {
+    for (const [shade, hex] of Object.entries(shades)) {
+      if (installed?.[family]?.[shade]?.toLowerCase() !== hex) changed.push(`${family}-${shade}`)
+    }
+  }
+  if (changed.length === 0) return []
+  return [
+    {
+      file: 'jack/tailwind-defaults.js',
+      message: `differs from the installed Tailwind colours (${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', ...' : ''}); regenerate it so charts keep the Jack palette`
+    }
+  ]
 }

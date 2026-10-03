@@ -7,15 +7,14 @@
  * actual colours live in `src/jack/theme/tokens.css`. Opacity modifiers such as
  * `bg-gray-300/50` keep working through `<alpha-value>`.
  *
- * Tailwind's status and accent families (red, amber, blue, ...) are replaced
- * with their mineral versions from palette.js, and the blue-tinted neutrals
- * (slate, zinc, ...) follow the Jack greys, so upstream badges and icon chips
- * match the theme without template changes.
+ * Tailwind's status and accent families (red, amber, blue, ...) become the
+ * Jack 文房 hues from palette.js (blue-black ink, verdigris, brass, madder, ink
+ * grey), and the blue-tinted neutrals (slate, zinc, ...) follow the Jack greys,
+ * so upstream badges and icon chips match the theme without template changes.
  *
  * Usage (frontend/tailwind.config.js): `export default withJackTheme({ ... })`.
  */
-import tailwindColors from 'tailwindcss/colors.js'
-import { JACK_MUTED_FAMILIES, JACK_NEUTRAL_FAMILIES, jackMute } from './palette.js'
+import { JACK_NEUTRAL_FAMILIES, JACK_UI_FAMILIES, jackFamilyColors } from './palette.js'
 
 export const JACK_PALETTES = ['gray', 'dark', 'primary', 'accent']
 export const JACK_SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
@@ -34,18 +33,14 @@ const JACK_FONT_MONO = ['"Geist Mono"']
 export const JACK_FONT_DISPLAY = ['"Instrument Serif"', '"Noto Serif SC Variable"', 'serif']
 
 /**
- * Mineral versions of Tailwind's status and accent families.
+ * Jack versions of Tailwind's colour families.
  * @returns {Record<string, Record<string, string>>}
  */
-export function jackMutedColors() {
-  const colors = /** @type {Record<string, Record<string, string>>} */ (tailwindColors)
-  return Object.fromEntries([
-    ...JACK_MUTED_FAMILIES.map((family) => [
-      family,
-      Object.fromEntries(Object.entries(colors[family]).map(([shade, value]) => [shade, jackMute(value)]))
-    ]),
-    ...JACK_NEUTRAL_FAMILIES.map((family) => [family, jackPalette('gray')])
-  ])
+export function jackFamilyPalettes() {
+  return {
+    ...jackFamilyColors(JACK_UI_FAMILIES),
+    ...Object.fromEntries(JACK_NEUTRAL_FAMILIES.map((family) => [family, jackPalette('gray')]))
+  }
 }
 
 /**
@@ -64,7 +59,7 @@ export function withJackTheme(config) {
       extend: {
         ...extend,
         colors: {
-          ...jackMutedColors(),
+          ...jackFamilyPalettes(),
           ...(extend.colors ?? {}),
           ...Object.fromEntries(JACK_PALETTES.map((name) => [name, jackPalette(name)]))
         },

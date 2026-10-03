@@ -89,11 +89,13 @@ and pick up the theme automatically.
   `node jack/vendor-cjk-fonts.mjs` regenerates the slices from the Fontsource
   packages (usage in the script header). It skips Latin and emoji ranges, so
   emoji keep their colour glyphs.
-- `frontend/jack/palette.js` mutes upstream's status and accent colours. Its
-  `jackMute` keeps OKLab lightness and hue and halves chroma.
-  `tailwind-theme.js` applies it to Tailwind's red, amber, blue, ... families,
-  and points slate, zinc, neutral and stone at the Jack greys. Badges and icon
-  chips follow without template changes.
+- `frontend/jack/palette.js` defines the 文房 palette. Colour carries meaning
+  only: blue-black ink, verdigris, brass and madder, plus an ink grey for
+  upstream's decorative purples and pinks. Each hue is one OKLCH base, and all
+  eleven shades come from one lightness ladder. `JACK_UI_FAMILIES` maps
+  Tailwind's colour families (`blue`, `emerald`, ...) to these hues, and
+  `tailwind-theme.js` applies the map. Slate, zinc, neutral and stone follow the
+  Jack greys. Retune a colour by editing its base value.
 - `frontend/src/jack/theme/tokens.css` holds every colour and surface value;
   `components.css` restyles upstream component classes (`.btn`, `.card`,
   `.input`, `.modal-content`, ...). The Vite plugin appends both to
@@ -133,8 +135,12 @@ and pick up the theme automatically.
   visible mismatch with a rule in `components.css`, not in the `.vue` file.
   Chart.js paints on a canvas, so CSS cannot recolour it. The plugin resolves
   upstream `import ... from 'chart.js'` to `src/jack/charts/chartjs.ts`. That
-  wrapper re-exports chart.js and registers `jackChartTheme`, which passes
-  dataset, axis and legend colours through `jackMute` before each update.
+  wrapper re-exports chart.js and registers `jackChartTheme`. Before each update,
+  `jackChartTheme` maps every Tailwind default colour in datasets, axes and the
+  legend to the `JACK_CHART_FAMILIES` colour of the same shade. That is a wider
+  categorical set, so series stay distinct; greys use `--jack-gray-*`. Defaults
+  are recognised through the static copy in `jack/tailwind-defaults.js`, and the
+  hook check warns if the installed Tailwind ever differs from it.
 
 ## Deployment and recovery
 
