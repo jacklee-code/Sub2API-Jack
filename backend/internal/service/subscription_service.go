@@ -44,10 +44,11 @@ var (
 
 // SubscriptionService 订阅服务
 type SubscriptionService struct {
-	groupRepo           GroupRepository
-	userSubRepo         UserSubscriptionRepository
-	billingCacheService *BillingCacheService
-	entClient           *dbent.Client
+	fleetManagementEnabled bool
+	groupRepo              GroupRepository
+	userSubRepo            UserSubscriptionRepository
+	billingCacheService    *BillingCacheService
+	entClient              *dbent.Client
 
 	// L1 缓存：加速中间件热路径的订阅查询
 	subCacheL1     *ristretto.Cache
@@ -219,6 +220,12 @@ func (s *SubscriptionService) AssignOrExtendSubscription(ctx context.Context, in
 }
 
 func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, input *AssignSubscriptionInput, deferCacheInvalidation bool) (*UserSubscription, bool, error) {
+	if input == nil {
+		return nil, false, ErrSubscriptionNilInput
+	}
+	if err := s.guardFleetSubscription(ctx, 0, input.UserID, input.GroupID); err != nil {
+		return nil, false, err
+	}
 	// 检查分组是否存在且为订阅类型
 	group, err := s.groupRepo.GetByID(ctx, input.GroupID)
 	if err != nil {
@@ -504,6 +511,12 @@ func (s *SubscriptionService) BulkAssignSubscription(ctx context.Context, input 
 }
 
 func (s *SubscriptionService) assignSubscriptionWithReuse(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error) {
+	if input == nil {
+		return nil, false, ErrSubscriptionNilInput
+	}
+	if err := s.guardFleetSubscription(ctx, 0, input.UserID, input.GroupID); err != nil {
+		return nil, false, err
+	}
 	// 检查分组是否存在且为订阅类型
 	group, err := s.groupRepo.GetByID(ctx, input.GroupID)
 	if err != nil {
@@ -598,6 +611,9 @@ func normalizeAssignValidityDays(days int) int {
 
 // RevokeSubscription 撤销订阅
 func (s *SubscriptionService) RevokeSubscription(ctx context.Context, subscriptionID int64) error {
+	if err := s.guardFleetSubscription(ctx, subscriptionID, 0, 0); err != nil {
+		return err
+	}
 	// 先获取订阅信息用于失效缓存
 	sub, err := s.userSubRepo.GetByID(ctx, subscriptionID)
 	if err != nil {
@@ -617,6 +633,9 @@ func (s *SubscriptionService) RevokeSubscription(ctx context.Context, subscripti
 
 // RestoreSubscription 恢复已撤销订阅
 func (s *SubscriptionService) RestoreSubscription(ctx context.Context, subscriptionID int64) (*UserSubscription, error) {
+	if err := s.guardFleetSubscription(ctx, subscriptionID, 0, 0); err != nil {
+		return nil, err
+	}
 	sub, err := s.userSubRepo.GetByIDIncludeDeleted(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
@@ -652,6 +671,9 @@ func (s *SubscriptionService) RestoreSubscription(ctx context.Context, subscript
 
 // ExtendSubscription 调整订阅时长（正数延长，负数缩短）
 func (s *SubscriptionService) ExtendSubscription(ctx context.Context, subscriptionID int64, days int) (*UserSubscription, error) {
+	if err := s.guardFleetSubscription(ctx, subscriptionID, 0, 0); err != nil {
+		return nil, err
+	}
 	err := s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
 		// Lock the row before reading its expiry. Without this lock, concurrent
 		// adjustments can both calculate from the same stale expiry and lose one
@@ -885,6 +907,9 @@ func (s *SubscriptionService) checkAndActivateWindowAt(ctx context.Context, sub 
 
 // AdminResetQuota manually resets the daily, weekly, and/or monthly usage windows.
 func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly bool) (*UserSubscription, error) {
+	if err := s.guardFleetSubscription(ctx, subscriptionID, 0, 0); err != nil {
+		return nil, err
+	}
 	if !resetDaily && !resetWeekly && !resetMonthly {
 		return nil, ErrInvalidInput
 	}

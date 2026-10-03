@@ -88,6 +88,13 @@ func RegisterAdminRoutes(
 		// 系统管理
 		registerSystemRoutes(admin, h)
 
+		// Jack fleet management
+		if h.Admin.Fleet != nil {
+			admin.GET("/fleets", h.Admin.Fleet.List)
+			admin.GET("/fleets/preview/:group_id", h.Admin.Fleet.Preview)
+			admin.POST("/fleets/actions", h.Admin.Fleet.Mutate)
+		}
+
 		// 订阅管理
 		registerSubscriptionRoutes(admin, h)
 

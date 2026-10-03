@@ -1,0 +1,28 @@
+export default {
+  fleet: {
+    imageRequired: '此版本需要同步更新 Docker 執行環境，請在部署目錄執行以下命令。',
+    title: '車隊管理', description: '集中管理成員、共同到期日與訂閱額度',
+    create: '建立車隊', empty: '建立第一個車隊', emptyHint: '綁定現有訂閱分組，將成員集中管理。',
+    name: '車隊名稱', group: '訂閱分組', expiry: '共同到期時間', timezone: '所有日期使用新加坡時間（UTC+8）',
+    members: '成員', fleets: '車隊', add: '加入成員', remove: '移出車隊', transfer: '轉移車隊',
+    reset: '重置額度', resetAll: '重置所有車隊', adjust: '調整到期日', extend30: '增加 30 天',
+    independent: '獨立期限', inherited: '跟隨車隊', memberExpiry: '成員期限', rename: '更改名稱', archive: '封存車隊',
+    daily: '每日', weekly: '每週', monthly: '每月', expired: '已到期', active: '有效',
+    search: '搜尋姓名或 Email', noMembers: '尚未加入成員', dragHint: '拖拉成員到另一個車隊即可轉隊，也可使用成員旁的轉隊按鈕。',
+    preview: '接管預覽', previewHint: '勾選成員即接管其現有訂閱；保留訂閱 ID 與用量。勾選獨立期限可保留個別到期日。',
+    oldExpiry: '目前到期日', newExpiry: '接管後到期日', selected: '已選成員', target: '目標車隊',
+    transferHint: '退出原車隊並加入目標車隊。綁定原分組的 API Key 將一併改綁，Key 字串及個別限制保持不變。',
+    removeHint: '撤銷此車隊授權，保留用量紀錄。其他車隊與個人訂閱不變，API Key 不會自動改綁。',
+    resetHint: '僅重置目前成員的車隊訂閱（包含獨立期限成員），不改到期日，也不重置上游 GPT 額度。',
+    expiryHint: '獨立期限成員不受影響；調整日期不重置額度。正數續期：未到期從原到期日算，已到期從現在算。',
+    archiveHint: '只能封存沒有成員的車隊，歷史訂閱紀錄將保留。',
+    byDate: '指定日期', byDays: '增減天數', days: '天數（負數為縮短）', save: '確認', cancel: '取消', refresh: '重新整理',
+    success: '車隊已更新', pending: '變更已保存，正在重試同步授權快取，請稍後重新整理。',
+    failed: '操作失敗，請重試', loading: '載入中…', choose: '請選擇',
+    existing: '接管現有訂閱', managed: '由車隊管理', noTarget: '沒有同平台的其他車隊',
+    independentHint: '獨立期限只影響到期日，仍參與車隊額度重置；移出車隊會撤銷授權。',
+    noSelection: '請選擇成員', keys: '{count} 個 Key', subscription: '訂閱 #{id}',
+    expiredHint: '車隊已到期；新加入的一般成員需續期後才能使用。', history: '已離隊：{count} 人',
+    adminHint: '管理員可按需要選擇獨立期限。', expiryRequired: '請輸入有效日期',
+  }
+}

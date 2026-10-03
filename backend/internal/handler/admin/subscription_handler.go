@@ -29,6 +29,7 @@ func toResponsePagination(p *pagination.PaginationResult) *response.PaginationRe
 
 // SubscriptionHandler handles admin subscription management
 type SubscriptionHandler struct {
+	fleet               *FleetHandler
 	subscriptionService *service.SubscriptionService
 }
 
@@ -93,6 +94,10 @@ func (h *SubscriptionHandler) List(c *gin.Context) {
 	out := make([]dto.AdminUserSubscription, 0, len(subscriptions))
 	for i := range subscriptions {
 		out = append(out, *dto.UserSubscriptionFromServiceAdmin(&subscriptions[i]))
+	}
+	if err := h.annotateFleet(c.Request.Context(), out); err != nil {
+		response.ErrorFrom(c, err)
+		return
 	}
 	response.PaginatedWithResult(c, out, toResponsePagination(pagination))
 }
@@ -325,6 +330,10 @@ func (h *SubscriptionHandler) ListByGroup(c *gin.Context) {
 	for i := range subscriptions {
 		out = append(out, *dto.UserSubscriptionFromServiceAdmin(&subscriptions[i]))
 	}
+	if err := h.annotateFleet(c.Request.Context(), out); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.PaginatedWithResult(c, out, toResponsePagination(pagination))
 }
 
@@ -346,6 +355,10 @@ func (h *SubscriptionHandler) ListByUser(c *gin.Context) {
 	out := make([]dto.AdminUserSubscription, 0, len(subscriptions))
 	for i := range subscriptions {
 		out = append(out, *dto.UserSubscriptionFromServiceAdmin(&subscriptions[i]))
+	}
+	if err := h.annotateFleet(c.Request.Context(), out); err != nil {
+		response.ErrorFrom(c, err)
+		return
 	}
 	response.Success(c, out)
 }

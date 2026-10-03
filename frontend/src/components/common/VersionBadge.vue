@@ -114,6 +114,8 @@
                 </p>
               </div>
 
+              <p v-if="currentVersion.includes('-jack.')" class="mb-3 text-center text-xs text-gray-400">Sub2API {{ currentVersion.split('-jack.')[0] }} · Jack</p>
+
               <!-- Priority 1: Update error (must check before hasUpdate) -->
               <div v-if="updateError" class="space-y-2">
                 <div
@@ -317,8 +319,9 @@
                   </div>
                 </div>
 
+                <div v-if="!appStore.binaryUpdateSupported" class="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200"><p>{{ t('fleet.imageRequired') }}</p><code class="mt-2 block break-all">./switch-image.sh {{ latestVersion }}</code></div>
                 <!-- Update button -->
-                <button
+                <button v-else
                   @click="handleUpdate"
                   :disabled="updating"
                   class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -651,9 +654,9 @@ import {
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
 
-const GITHUB_REPO = 'Wei-Shaw/sub2api'
+const GITHUB_REPO = 'jacklee-code/Sub2API-Jack'
 // Docker Hub image published by CI (tags carry no "v" prefix, e.g. weishaw/sub2api:0.1.146)
-const DOCKER_IMAGE = 'weishaw/sub2api'
+const DOCKER_IMAGE = 'ghcr.io/jacklee-code/sub2api-jack'
 
 const { t } = useI18n()
 
@@ -710,7 +713,7 @@ const manualTabs = computed(() => [
 const scriptRollbackCommand = computed(() => {
   if (!selectedRollbackVersion.value) return ''
   const tag = `v${selectedRollbackVersion.value}`
-  return `curl -sSL https://raw.githubusercontent.com/${GITHUB_REPO}/${tag}/deploy/install.sh | sudo bash -s -- rollback ${tag}`
+  return `# ${GITHUB_REPO}\n# ${tag}\n./switch-image.sh ${selectedRollbackVersion.value}`
 })
 
 const dockerRollbackCommand = computed(() => {
@@ -720,7 +723,7 @@ const dockerRollbackCommand = computed(() => {
     `image: ${DOCKER_IMAGE}:${selectedRollbackVersion.value}`,
     '',
     `# ${t('version.dockerRecreate')}`,
-    'docker compose up -d'
+    `./switch-image.sh ${selectedRollbackVersion.value}`
   ].join('\n')
 })
 

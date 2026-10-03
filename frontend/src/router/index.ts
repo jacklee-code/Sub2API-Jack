@@ -502,6 +502,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/fleets',
+    name: 'AdminFleets',
+    component: () => import('@/views/admin/FleetsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Fleet Management', titleKey: 'fleet.title', descriptionKey: 'fleet.description' }
+  },
+  {
     path: '/admin/subscriptions',
     name: 'AdminSubscriptions',
     component: () => import('@/views/admin/SubscriptionsView.vue'),

@@ -2094,6 +2094,8 @@ export interface ChangePasswordRequest {
 // ==================== User Subscription Types ====================
 
 export interface UserSubscription {
+  fleet_id?: number
+  fleet_independent_expiry?: boolean
   id: number
   user_id: number
   group_id: number

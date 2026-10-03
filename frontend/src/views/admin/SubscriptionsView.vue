@@ -417,7 +417,8 @@
           </template>
 
           <template #cell-actions="{ row }">
-            <div class="flex items-center gap-1">
+            <RouterLink v-if="row.fleet_id" to="/admin/fleets" class="text-sm text-primary-600">{{ t('fleet.managed') }}</RouterLink>
+            <div v-else class="flex items-center gap-1">
               <button
                 v-if="row.status === 'active' || row.status === 'expired'"
                 @click="handleExtend(row)"
