@@ -21,7 +21,7 @@ func (h *SubscriptionHandler) annotateFleet(ctx context.Context, subscriptions [
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	byID := map[int64]int{}
 	for i := range subscriptions {
 		byID[subscriptions[i].ID] = i

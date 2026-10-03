@@ -32,7 +32,7 @@ func (s *BackupService) CreateJackUpdateBackup(ctx context.Context, version stri
 	if err != nil {
 		return err
 	}
-	defer os.Remove(archive)
+	defer func() { _ = os.Remove(archive) }()
 	for _, pair := range [][2]string{{archive, filepath.Join(dir, "database.sql.gz")}, {exe, filepath.Join(dir, "sub2api")}} {
 		if err = copyJackBackupFile(pair[0], pair[1]); err != nil {
 			return err
@@ -56,7 +56,7 @@ func copyJackBackupFile(source, destination string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err

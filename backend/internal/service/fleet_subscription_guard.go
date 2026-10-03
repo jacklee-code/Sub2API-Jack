@@ -21,7 +21,7 @@ func (s *SubscriptionService) guardFleetSubscription(ctx context.Context, id, us
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	if rows.Next() {
 		return apperrors.Conflict("FLEET_MANAGED_SUBSCRIPTION", "This subscription is managed by a fleet; use Fleet Management")
 	}

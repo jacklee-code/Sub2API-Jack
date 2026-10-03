@@ -41,7 +41,7 @@ func Apply(ctx context.Context, db *sql.DB) error {
 		err = tx.QueryRowContext(ctx, `SELECT checksum FROM jack_schema_migrations WHERE name=$1`, name).Scan(&old)
 		if err == nil {
 			if old != sum {
-				return fmt.Errorf("Jack migration %s checksum mismatch", name)
+				return fmt.Errorf("jack migration %s checksum mismatch", name)
 			}
 			continue
 		}
@@ -49,7 +49,7 @@ func Apply(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, string(body)); err != nil {
-			return fmt.Errorf("Jack migration %s: %w", name, err)
+			return fmt.Errorf("jack migration %s: %w", name, err)
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO jack_schema_migrations(name,checksum) VALUES($1,$2)`, name, sum); err != nil {
 			return err

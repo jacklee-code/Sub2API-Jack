@@ -100,13 +100,13 @@ func (s *Store) List(ctx context.Context) ([]Fleet, error) {
 	for rows.Next() {
 		var f Fleet
 		if err = rows.Scan(&f.ID, &f.Name, &f.GroupID, &f.GroupName, &f.Platform, &f.ExpiresAt, &f.Version, &f.DailyLimit, &f.WeeklyLimit, &f.MonthlyLimit); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		fleets = append(fleets, f)
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (s *Store) members(ctx context.Context, groupID int64, fleetID *int64) ([]M
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := []Member{}
 	for rows.Next() {
 		var m Member
@@ -216,7 +216,7 @@ func (s *Store) Pending(ctx context.Context) ([]struct {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := []struct {
 		Actor  int64
 		Key    string
@@ -305,17 +305,17 @@ func (s *Store) apply(ctx context.Context, tx *sql.Tx, actor int64, in Input, ou
 		for rows.Next() {
 			var id, v int64
 			if err = rows.Scan(&id, &v); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			if in.Versions[id] != v {
-				rows.Close()
+				_ = rows.Close()
 				return conflict("Fleet list changed; refresh before retrying")
 			}
 			ids = append(ids, id)
 		}
 		err = rows.Err()
-		rows.Close()
+		_ = rows.Close()
 		if err != nil {
 			return err
 		}
@@ -455,7 +455,7 @@ func adjustExpiry(old, now time.Time, days int, exact *time.Time) (time.Time, er
 	return next, nil
 }
 func collectPairs(rows *sql.Rows, out *Result) error {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var p Pair
 		if err := rows.Scan(&p.UserID, &p.GroupID); err != nil {

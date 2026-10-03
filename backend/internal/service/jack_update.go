@@ -56,7 +56,7 @@ func (s *UpdateService) jackManifest(ctx context.Context, assets []Asset) (*Jack
 		}
 	}
 	if manifestURL == "" {
-		return nil, fmt.Errorf("Jack release manifest is missing")
+		return nil, fmt.Errorf("jack release manifest is missing")
 	}
 	if err := validateJackAsset(manifestURL); err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (s *UpdateService) jackManifest(ctx context.Context, assets []Asset) (*Jack
 		return nil, err
 	}
 	if len(data) > 65536 {
-		return nil, fmt.Errorf("Jack release manifest is too large")
+		return nil, fmt.Errorf("jack release manifest is too large")
 	}
 	var m JackReleaseManifest
 	if err = json.Unmarshal(data, &m); err != nil {
