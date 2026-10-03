@@ -1,6 +1,6 @@
 import { createI18n } from 'vue-i18n'
 
-type LocaleCode = 'en' | 'zh'
+type LocaleCode = 'en' | 'zh' | 'zh-Hant'
 
 type LocaleMessages = Record<string, any>
 
@@ -9,11 +9,12 @@ const DEFAULT_LOCALE: LocaleCode = 'en'
 
 const localeLoaders: Record<LocaleCode, () => Promise<{ default: LocaleMessages }>> = {
   en: () => import('./locales/en'),
-  zh: () => import('./locales/zh')
+  zh: () => import('./locales/zh'),
+  'zh-Hant': () => import('@/jack/i18n/zhHant')
 }
 
 function isLocaleCode(value: string): value is LocaleCode {
-  return value === 'en' || value === 'zh'
+  return Object.prototype.hasOwnProperty.call(localeLoaders, value)
 }
 
 function getDefaultLocale(): LocaleCode {
@@ -24,7 +25,7 @@ function getDefaultLocale(): LocaleCode {
 
   const browserLang = navigator.language.toLowerCase()
   if (browserLang.startsWith('zh')) {
-    return 'zh'
+    return /^zh-(hant|tw|hk|mo)\b/.test(browserLang) ? 'zh-Hant' : 'zh'
   }
 
   return DEFAULT_LOCALE
@@ -92,8 +93,9 @@ export function getLocale(): LocaleCode {
 }
 
 export const availableLocales = [
-  { code: 'en', name: 'English', flag: '🇺🇸' },
-  { code: 'zh', name: '中文', flag: '🇨🇳' }
+  { code: 'en', name: 'English', short: 'EN', flag: '🇺🇸' },
+  { code: 'zh', name: '简中', short: '简', flag: '🇨🇳' },
+  { code: 'zh-Hant', name: '繁中', short: '繁', flag: '🌐' }
 ] as const
 
 export default i18n

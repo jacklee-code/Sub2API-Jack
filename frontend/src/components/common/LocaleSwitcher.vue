@@ -7,7 +7,7 @@
       :title="currentLocale?.name"
     >
       <span class="text-base">{{ currentLocale?.flag }}</span>
-      <span class="hidden sm:inline">{{ currentLocale?.code.toUpperCase() }}</span>
+      <span class="hidden sm:inline">{{ currentLocale?.short }}</span>
       <Icon
         name="chevronDown"
         size="xs"

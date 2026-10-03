@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { resolve } from 'path'
 import { jackTheme } from './jack/vite-plugin.js'
+import { jackZhHant } from './jack/vite-plugin-zh-hant.js'
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -87,6 +88,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       jackTheme(__dirname),
+      jackZhHant(__dirname),
       vue(),
       checker({
         vueTsc: true
