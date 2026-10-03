@@ -1,9 +1,10 @@
 import { defineConfig } from 'vitest/config'
 import { resolve } from 'path'
 import vue from '@vitejs/plugin-vue'
+import { jackZhHant } from './jack/vite-plugin-zh-hant.js'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), jackZhHant(__dirname)],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

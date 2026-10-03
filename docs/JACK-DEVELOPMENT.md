@@ -142,6 +142,36 @@ and pick up the theme automatically.
   are recognised through the static copy in `jack/tailwind-defaults.js`, and the
   hook check warns if the installed Tailwind ever differs from it.
 
+## Traditional Chinese locale
+
+The language menu offers English, 简中 (`zh`, upstream) and 繁中 (`zh-Hant`,
+Jack). Upstream maintains only `en` and `zh`; the Traditional messages are
+generated from upstream `zh` at build time, so an upstream sync needs no locale
+work and new keys appear in 繁中 automatically.
+
+- `frontend/jack/vite-plugin-zh-hant.js` resolves
+  `@/i18n/locales/zh?jack-zh-hant` (and the relative imports inside that folder)
+  to marked copies of the upstream modules and converts their source with
+  `toTraditional` from `frontend/jack/zh-hant-convert.js`: OpenCC `cn` → `tw`
+  (character forms only, no regional vocabulary), then the small
+  `JACK_ZH_HANT_CHARACTERS` table (臺 → 台, 賬 → 帳). `opencc-js` is a dev
+  dependency; the browser only receives the converted chunk, and only when
+  繁中 is selected. Both `vite.config.ts` and `vitest.config.ts` register it.
+- `frontend/src/jack/i18n/zhHant.ts` is the locale module. Fix a wrong message
+  by adding it to `zhHant.overrides.ts` (same shape as upstream `zh`); add a
+  character to the table only when the fix applies everywhere.
+- Upstream touches: `src/i18n/index.ts` (locale code, loader, browser detection
+  for `zh-TW`/`zh-HK`/`zh-MO`/`zh-Hant`, menu entries with a `short` label),
+  the button label in `LocaleSwitcher.vue`, and a few `=== 'zh'` checks relaxed
+  to `startsWith('zh')`. Keep new Chinese checks prefix-based.
+- `src/jack/__tests__/zhHantLocale.spec.ts` checks that the generated keys equal
+  upstream `zh`, every message is converted and compiles, and every override
+  key still exists upstream.
+- Not converted: Chinese hard-coded in upstream templates, server-provided text
+  (site settings, compliance phrases) and backend e-mails, which treat any
+  `zh*` `Accept-Language` as Simplified. Titles use Noto Serif SC; characters
+  outside its slices fall back to the system serif.
+
 ## Deployment and recovery
 
 Copy `deploy/jack/switch-image.sh` into the existing deployment directory and run
