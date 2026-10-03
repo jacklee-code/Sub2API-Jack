@@ -19,15 +19,6 @@ Production deployment remains operator-triggered. The panel's update and rollbac
 source is this repository. Docker must preserve the installed executable across
 container recreation; image changes and executable changes are separate actions.
 
-## Implementation checklist
-
-- [ ] Fleet storage, transactions, ownership guards, idempotency, cache invalidation
-- [ ] Admin interface, adoption preview, membership and quota operations
-- [ ] Updater identity, version ordering, release compatibility and persistence
-- [ ] Upstream synchronization, CI, releases and maintenance documentation
-- [ ] Isolated integration/browser/update/recovery verification
-- [ ] Production backup, first deployment and initial adoption verification
-
 ## Daily workflow
 
 1. Branch from `main`, implement a feature and add behavior-level tests.
@@ -107,3 +98,35 @@ releases on the same upstream base, schema epoch and runtime fingerprint.
 
 Initial adoption is an explicit call to the fleet API, never a schema migration.
 Production member identities and private snapshots stay outside the repository.
+
+## First publication and package access
+
+GitHub Container Registry packages start private even when their source repository
+is public. After the first successful publication, the owner sets the package
+visibility to Public in GitHub's Package settings once. Public Release binaries
+are independently available. Do not add a GitHub token to application settings to
+work around package visibility: the panel updater downloads public Release assets.
+
+For this repository the package is `ghcr.io/jacklee-code/sub2api-jack`. Source-linked
+workflow access is supplied by the image's `org.opencontainers.image.source` label.
+Main is protected by `Jack verified`; push feature branches and merge their PRs.
+The hourly upstream workflow preserves failed/conflicting PRs for repair and does
+not deploy to a VPS. Release tags and published versions must never be overwritten.
+
+## Verification recorded for the first release
+
+- Real PostgreSQL transactions cover adoption, independent expiry, source-key
+  transfer, leave/rejoin, reset scope, idempotency and concurrent stale revisions.
+- Browser checks cover desktop/mobile pages, member transfer controls and the
+  drag/drop confirmation flow. Ordinary requests and SSE through isolated mock
+  providers switch destinations while preserving the same API key.
+- HTTP checks exercise removal/rejoin, expiry and renewal, reset-all, managed
+  subscription guards, administrator authorization and repeated operation keys.
+- An isolated restoration of the existing deployment's database was migrated and
+  adopted successfully with all subscription IDs, counters and billing windows
+  preserved. No application workers ran against that restored production data.
+- Executable replacement and compatible rollback run in subprocess tests. Bad
+  checksums leave the executable unchanged. Container recreation retains an
+  updated persistent executable. Runtime changes are rejected for binary updates.
+- Real local Git fixtures verify successful upstream merges preserve custom
+  features, and conflicting merges produce a draft without discarding local work.

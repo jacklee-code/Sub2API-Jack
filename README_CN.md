@@ -1,3 +1,17 @@
+# Sub2API-Jack
+
+本二次開發版新增**車隊管理**：共同到期日、成員獨立期限、轉隊時自動改綁 API Key，以及單隊／全部車隊額度重置。接管既有訂閱時保留訂閱 ID 與用量。
+
+以 **merge** 跟進官方穩定版，通過測試後自動發布自己的 Release 與 GHCR 映像；正式服務由管理員手動一鍵更新。
+
+- [Jack 版本發布](https://github.com/jacklee-code/Sub2API-Jack/releases)
+- [開發、部署與還原指南](docs/JACK-DEVELOPMENT.md)
+- 原始碼：`jacklee-code/Sub2API-Jack`；映像：`ghcr.io/jacklee-code/sub2api-jack`
+
+部署本二次開發版時，請使用 Jack 指南與版本來源。以下保留上游專案原有文件。
+
+---
+
 <div align="center">
 
 <img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
