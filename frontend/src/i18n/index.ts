@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { isTraditionalChinese, migrateSavedLocale } from '@/jack/i18n/localeMigration'
 
 type LocaleCode = 'en' | 'zh' | 'zh-Hant'
 
@@ -18,14 +19,14 @@ function isLocaleCode(value: string): value is LocaleCode {
 }
 
 function getDefaultLocale(): LocaleCode {
-  const saved = localStorage.getItem(LOCALE_KEY)
+  const saved = migrateSavedLocale(LOCALE_KEY, navigator.language)
   if (saved && isLocaleCode(saved)) {
     return saved
   }
 
   const browserLang = navigator.language.toLowerCase()
   if (browserLang.startsWith('zh')) {
-    return /^zh-(hant|tw|hk|mo)\b/.test(browserLang) ? 'zh-Hant' : 'zh'
+    return isTraditionalChinese(browserLang) ? 'zh-Hant' : 'zh'
   }
 
   return DEFAULT_LOCALE
@@ -95,7 +96,7 @@ export function getLocale(): LocaleCode {
 export const availableLocales = [
   { code: 'en', name: 'English', short: 'EN', flag: '🇺🇸' },
   { code: 'zh', name: '简中', short: '简', flag: '🇨🇳' },
-  { code: 'zh-Hant', name: '繁中', short: '繁', flag: '🌐' }
+  { code: 'zh-Hant', name: '繁中', short: '繁', flag: '🇭🇰' }
 ] as const
 
 export default i18n
