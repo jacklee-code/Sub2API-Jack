@@ -44,7 +44,8 @@ vi.mock('@/views/HomeView.vue', () => ({
 const stubs = {
   RouterLink: RouterLinkStub,
   LocaleSwitcher: { template: '<div />' },
-  Icon: { template: '<span />' }
+  Icon: { template: '<span />' },
+  InkCanvas: { template: '<canvas />' }
 }
 
 describe('JackHomeView', () => {
