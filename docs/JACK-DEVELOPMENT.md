@@ -111,6 +111,17 @@ and pick up the theme automatically.
   Administrator home content and the compact home page still render the upstream
   `HomeView`. Vitest does not load the plugin, so upstream tests keep testing
   upstream components.
+- `JackHomeView.vue` is the public `/home` page. Its copy lives in
+  `src/jack/home/messages.ts` as component-local i18n messages (en, zh, zh-Hant
+  written by hand), so the upstream locale files are untouched; shared keys such
+  as `home.login` still come from the global messages. The page follows public
+  settings: the model catalogue, hero diagram providers and snippet model names
+  come from the Model Plaza only when the plaza flag is on and the visitor may
+  see it (`model_plaza_require_auth`); a failed or empty plaza response leaves
+  the catalogue out. Sign-up calls to action need `registration_enabled`, and
+  snippets use `api_base_url` or the current origin. `src/jack/home/InkCanvas.vue`
+  draws the 墨暈 ink effect; it pauses off screen and in hidden tabs, and paints
+  a still image under `prefers-reduced-motion`.
 - `JackAppLayout.vue` composes the upstream `AppSidebar` and `AppHeader` and keeps
   all of their logic (menus, feature flags, tour anchors, titles, balance, user
   menu). The sidebar sits in a `.dark` wrapper, so it renders dark in both colour
