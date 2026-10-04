@@ -163,7 +163,12 @@ work and new keys appear in 繁中 automatically.
 - Upstream touches: `src/i18n/index.ts` (locale code, loader, browser detection
   for `zh-TW`/`zh-HK`/`zh-MO`/`zh-Hant`, menu entries with a `short` label),
   the button label in `LocaleSwitcher.vue`, and a few `=== 'zh'` checks relaxed
-  to `startsWith('zh')`. Keep new Chinese checks prefix-based.
+  to `startsWith('zh')`. Keep new Chinese checks prefix-based. The 繁中 entry
+  uses the 🇭🇰 flag (Windows shows it as "HK", like "US" and "CN").
+- `src/jack/i18n/localeMigration.ts` runs once per browser (marker
+  `jack_locale_zh_hant_migrated`): a `zh` saved before 繁中 existed becomes
+  `zh-Hant` when the browser language is Traditional Chinese. Saved English,
+  Simplified browsers and later choices are kept.
 - `src/jack/__tests__/zhHantLocale.spec.ts` checks that the generated keys equal
   upstream `zh`, every message is converted and compiles, and every override
   key still exists upstream.
