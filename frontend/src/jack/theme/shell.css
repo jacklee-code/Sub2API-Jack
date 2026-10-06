@@ -76,8 +76,9 @@ body:has(.jack-shell) {
   padding: var(--jack-content-pad-y) var(--jack-content-pad-x);
 }
 
-/* TablePageLayout sizes itself for upstream's 64px header and 2rem padding. */
-.jack-shell .jack-sheet .table-page-layout {
+/* TablePageLayout and the chat page size themselves for upstream's 64px header and 2rem padding. */
+.jack-shell .jack-sheet .table-page-layout,
+.jack-shell .jack-sheet .chat-page {
   height: calc(100vh - 2 * var(--jack-gap) - var(--jack-toolbar-h) - 1px - 2 * var(--jack-content-pad-y));
   height: calc(100dvh - 2 * var(--jack-gap) - var(--jack-toolbar-h) - 1px - 2 * var(--jack-content-pad-y));
 }

@@ -116,6 +116,11 @@ func registerRoutes(
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
 
+	// Jack chat mode dispatches its model calls through this router's /v1 routes.
+	if h.JackChat != nil {
+		h.JackChat.SetEngine(r)
+	}
+
 	// API v1
 	v1 := r.Group("/api/v1")
 

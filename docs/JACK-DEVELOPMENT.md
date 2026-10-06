@@ -66,6 +66,41 @@ The idempotency record commits with the business changes. A cache outage returns
 restart. Retrying the same key does not repeat the business operation. Do not
 manually delete pending operation records.
 
+## Chat mode
+
+`/chat` lets users talk to models and generate images in the panel. Conversations,
+messages and attachment records live in `jack_chat_*` tables
+(`backend/jackmigrations/002_chat.sql`); model calls are ordinary gateway requests.
+
+- Each (user, group) pair gets one hidden API key with the `sk-jackchat-` prefix
+  (`internal/pkg/jackchatkey`), created on first use. `internal/jackchat` serves
+  the request in-process through the router's real `/v1` chain, so API-key auth,
+  subscription/balance checks, scheduling, proxies, fingerprints, rate multipliers,
+  reasoning-effort policy and usage billing are exactly those of an API call with
+  that key. Usage rows therefore carry the chosen group; the usage DTO adds
+  `chat_mode`, and the table shows "<group> 聊天模式".
+- The prefix is the only marker. Key lists and counts exclude it, custom keys
+  cannot use it, DTOs mask it, and both API-key middlewares reject it unless the
+  request context carries the in-process marker. Key strings never reach the browser.
+- Only `openai` groups the user can bind are offered; the default is the stored
+  preference while it stays available, otherwise the newest group. Each
+  conversation keeps its own mode, group, model and options; changes become the
+  user's preference.
+- Chat mode sends `/v1/responses` (`reasoning.effort`, optional `web_search`
+  tool; citations are stored per message). Image mode lists only `gpt-image*`
+  models and sends one `n=1` request per image (1-4, bounded by user concurrency),
+  using `/v1/images/edits` multipart when reference images are attached. Aspect
+  ratios map to sizes whose longest edge is 1024, so billing stays in the 1K tier.
+- Images and PDFs, and generated images, are stored in the async image object
+  storage (`ImageStorageSettingService.JackChatStore`); text files are kept in the
+  database. Without storage, only text attachments work. Files are served through
+  `/api/v1/chat/attachments/:id/content` after an ownership check. Reused images are
+  copied as rows and the object is deleted only when no row references it; unsent
+  uploads are removed after a day.
+- The `/api/v1/chat` routes skip the audit middleware because their bodies are
+  conversation content. `/admin/chat-settings` stores the switch, an optional
+  system prompt and the limits.
+
 ## Jack theme layer
 
 The Jack look (Graphite · 石墨) lives in Jack-owned files: a graphite canvas

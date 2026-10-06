@@ -8,6 +8,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/jackchatkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -78,6 +79,14 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		// 同 api_key_auth.go：早退中断前也写入 Ops 回退 key，便于错误日志展示
 		// user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
+
+		// Jack chat-mode keys only work for in-process chat dispatches.
+		if jackchatkey.IsChatKey(apiKey.Key) && !jackchatkey.IsInternal(c.Request.Context()) {
+			recordInvalidAuthFailure(c, apiKeyService)
+			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
+			abortWithGoogleError(c, 401, "Invalid API key")
+			return
+		}
 
 		// disabled / 未知状态 → 无条件拦截（expired 和 quota_exhausted 留给计费阶段，
 		// 与主中间件 api_key_auth.go 保持一致）。

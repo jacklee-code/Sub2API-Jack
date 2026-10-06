@@ -229,6 +229,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/chat',
+    name: 'Chat',
+    component: () => import('@/views/user/ChatView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Chat',
+      titleKey: 'chat.title',
+      descriptionKey: 'chat.description'
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),
@@ -506,6 +518,12 @@ const routes: RouteRecordRaw[] = [
     name: 'AdminFleets',
     component: () => import('@/views/admin/FleetsView.vue'),
     meta: { requiresAuth: true, requiresAdmin: true, title: 'Fleet Management', titleKey: 'fleet.title', descriptionKey: 'fleet.description' }
+  },
+  {
+    path: '/admin/chat-settings',
+    name: 'AdminChatSettings',
+    component: () => import('@/views/admin/ChatSettingsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Chat Settings', titleKey: 'chat.settings.title', descriptionKey: 'chat.settings.description' }
   },
   {
     path: '/admin/subscriptions',

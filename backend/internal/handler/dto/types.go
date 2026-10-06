@@ -663,6 +663,9 @@ type UsageLog struct {
 
 	CreatedAt time.Time `json:"created_at"`
 
+	// ChatMode marks usage made through Jack's web chat mode.
+	ChatMode bool `json:"chat_mode,omitempty"`
+
 	User         *User             `json:"user,omitempty"`
 	APIKey       *APIKey           `json:"api_key,omitempty"`
 	Group        *Group            `json:"group,omitempty"`

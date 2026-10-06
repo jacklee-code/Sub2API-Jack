@@ -95,6 +95,12 @@ func RegisterAdminRoutes(
 			admin.POST("/fleets/actions", h.Admin.Fleet.Mutate)
 		}
 
+		// Jack chat mode settings
+		if h.JackChat != nil {
+			admin.GET("/chat-settings", h.JackChat.AdminSettings)
+			admin.PUT("/chat-settings", h.JackChat.UpdateAdminSettings)
+		}
+
 		// 订阅管理
 		registerSubscriptionRoutes(admin, h)
 
