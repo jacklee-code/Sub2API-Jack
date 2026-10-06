@@ -89,8 +89,23 @@ messages and attachment records live in `jack_chat_*` tables
 - Chat mode sends `/v1/responses` (`reasoning.effort`, optional `web_search`
   tool; citations are stored per message). Image mode lists only `gpt-image*`
   models and sends one `n=1` request per image (1-4, bounded by user concurrency),
-  using `/v1/images/edits` multipart when reference images are attached. Aspect
-  ratios map to sizes whose longest edge is 1024, so billing stays in the 1K tier.
+  using `/v1/images/edits` multipart when reference images are attached. Codex
+  image accounts ignore `size` (every requested size returned the same image), but
+  follow a ratio stated in the prompt, returning about 1.5 megapixels at that ratio
+  (1:1 1254x1254, 16:9 1672x941, 4:3 1448x1086, 2:3 1024x1536 in testing). So no
+  size is sent; `ImagePrompt` prepends a ratio sentence for the chosen ratio (none
+  for auto). The gateway bills by output size, so these images land in its 2K
+  tier. Captions show the real size.
+- Each chat request carries `prompt_cache_key: jackchat:<conversation id>`, which
+  pins the conversation to one upstream account and prompt cache. History is
+  estimated against `max_context_tokens` (admin setting, default 200,000); on
+  overflow the conversation's `context_start_id` moves forward to fit 70% of the
+  budget, so the request prefix stays stable for later turns. Upstream
+  context-length errors are stored as `context_length_exceeded` and shown as a hint.
+- Finished replies set `last_reply_at`; a conversation is unread while that is
+  newer than `read_at`. Opening it (or seeing the reply finish) marks it read; the
+  list can mark it unread again. `GET /chat/unread` feeds the sidebar dot.
+  Web search is stored per conversation and new conversations start with it on.
 - Images and PDFs, and generated images, are stored in the async image object
   storage (`ImageStorageSettingService.JackChatStore`); text files are kept in the
   database. Without storage, only text attachments work. Files are served through

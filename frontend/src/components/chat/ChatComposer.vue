@@ -79,6 +79,7 @@
         @click="emit('update:webSearch', !webSearch)"
       >
         <Icon :name="webSearch ? 'check' : 'globe'" size="sm" />
+        <span class="sm:hidden">{{ t('chat.webSearchShort') }}</span>
         <span class="hidden sm:inline">{{ t('chat.webSearch') }}</span>
         <span v-if="webSearch" class="hidden rounded-full bg-white/20 px-1.5 text-xs sm:inline">{{ t('chat.webSearchOn') }}</span>
       </button>

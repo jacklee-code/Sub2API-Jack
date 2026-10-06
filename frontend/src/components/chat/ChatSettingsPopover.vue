@@ -67,7 +67,8 @@
       <!-- Chat: reasoning effort -->
       <template v-else-if="mode === 'chat'">
         <div class="flex items-start justify-between">
-          <Icon name="bolt" size="sm" class="mt-1 text-gray-400" />
+          <!-- Balances the reset button so the level stays centred. -->
+          <span class="w-7 shrink-0" aria-hidden="true"></span>
           <div class="min-w-0 flex-1 text-center">
             <div class="text-xl font-semibold" :class="effort ? 'text-primary-600 dark:text-primary-400' : 'text-gray-500 dark:text-gray-400'" data-testid="chat-effort-label">
               {{ effortLabel(effort) }}
@@ -132,7 +133,7 @@
             :key="a"
             type="button"
             :class="[
-              'flex h-14 flex-col items-center justify-center gap-1 rounded-lg border text-[11px] transition-colors',
+              'flex h-[4.25rem] flex-col items-center justify-center gap-1 rounded-lg border text-[11px] transition-colors',
               a === aspect
                 ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-200'
                 : 'border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-400 dark:hover:bg-dark-700'
@@ -141,8 +142,10 @@
             :data-testid="`chat-aspect-${a}`"
             @click="emit('update:aspect', a)"
           >
-            <span class="rounded-[3px] border-[1.5px] border-current" :style="shapeStyle(a)"></span>
-            <span>{{ a }}</span>
+            <span v-if="a === 'auto'" class="flex h-5 w-5 items-center justify-center rounded-[3px] border-[1.5px] border-dashed border-current text-[9px] font-semibold">A</span>
+            <span v-else class="rounded-[3px] border-[1.5px] border-current" :style="shapeStyle(a)"></span>
+            <span>{{ aspectLabel(a) }}</span>
+            <span v-if="imageSizes[a]" class="text-[10px] leading-none opacity-70">{{ imageSizes[a].replace('x', '×') }}</span>
           </button>
         </div>
         <div class="mb-1.5 mt-3 text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('chat.count') }}</div>
@@ -162,7 +165,7 @@
             {{ n }}
           </button>
         </div>
-        <p class="mt-3 text-xs text-gray-400">{{ t('chat.resolutionHint') }}</p>
+        <p class="mt-3 text-xs text-gray-400">{{ t('chat.sizeHint') }}</p>
       </template>
     </div>
   </div>
@@ -188,6 +191,7 @@ const props = defineProps<{
   aspect: string
   count: number
   maxCount: number
+  imageSizes?: Record<string, string>
   disabled?: boolean
 }>()
 const emit = defineEmits<{
@@ -215,8 +219,14 @@ const levelIndex = computed(() => {
 const fillPct = computed(() => (levels.value.length > 1 ? (levelIndex.value / (levels.value.length - 1)) * 100 : 0))
 const groupName = computed(() => props.groups.find((g) => g.id === props.groupId)?.name || t('chat.group'))
 const summary = computed(() =>
-  props.mode === 'image' ? `${props.aspect} · ${t('chat.countShort', { n: props.count })}` : effortLabel(props.effort)
+  props.mode === 'image' ? `${aspectLabel(props.aspect)} · ${t('chat.countShort', { n: props.count })}` : effortLabel(props.effort)
 )
+
+const imageSizes = computed(() => props.imageSizes || {})
+
+function aspectLabel(a: string) {
+  return a === 'auto' ? t('chat.aspectAuto') : a
+}
 
 function effortLabel(e: string) {
   return t(`chat.efforts.${e || 'default'}`)

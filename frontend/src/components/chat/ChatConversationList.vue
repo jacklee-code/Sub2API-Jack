@@ -42,8 +42,25 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
             </svg>
             <Icon v-else name="chatBubble" size="sm" class="shrink-0 text-gray-400" />
-            <span class="min-w-0 flex-1 truncate">{{ conv.title || t('chat.untitled') }}</span>
-            <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex group-focus-within:flex" :class="{ '!flex': conv.id === activeId }">
+            <span class="min-w-0 flex-1 truncate" :class="{ 'font-semibold text-gray-900 dark:text-white': conv.unread && conv.id !== activeId }">{{ conv.title || t('chat.untitled') }}</span>
+            <span
+              v-if="conv.unread && conv.id !== activeId"
+              class="h-2 w-2 shrink-0 rounded-full bg-emerald-500"
+              :title="t('chat.unread')"
+              :data-testid="`chat-unread-${conv.id}`"
+            ></span>
+            <!-- Hover-only actions on mouse devices; on touch screens they show for the open conversation, so one tap opens a conversation. -->
+            <span class="hidden shrink-0 items-center gap-0.5 [@media(hover:hover)]:group-hover:flex [@media(hover:hover)]:group-focus-within:flex" :class="{ '!flex': conv.id === activeId }">
+              <button
+                v-if="!conv.unread"
+                type="button"
+                class="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-dark-600 dark:hover:text-gray-100"
+                :title="t('chat.markUnread')"
+                :aria-label="t('chat.markUnread')"
+                @click.stop="emit('markUnread', conv)"
+              >
+                <Icon name="mail" size="xs" />
+              </button>
               <button
                 type="button"
                 class="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-dark-600 dark:hover:text-gray-100"
@@ -82,6 +99,7 @@ const emit = defineEmits<{
   create: []
   rename: [conv: ChatConversation, title: string]
   delete: [conv: ChatConversation]
+  markUnread: [conv: ChatConversation]
 }>()
 const { t } = useI18n()
 

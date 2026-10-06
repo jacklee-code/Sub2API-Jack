@@ -39,6 +39,7 @@
           </div>
         </div>
 
+        <p v-if="message.omitted" class="mb-2 text-xs text-gray-400" data-testid="chat-omitted">{{ t('chat.omitted', { n: message.omitted }) }}</p>
         <details v-if="message.reasoning" class="mb-2 rounded-xl border border-gray-200 px-3 py-2 text-sm dark:border-dark-600" :open="streaming && !message.content">
           <summary class="cursor-pointer select-none text-gray-500 dark:text-gray-400">{{ t('chat.reasoning') }}</summary>
           <div class="mt-2 whitespace-pre-wrap text-gray-600 dark:text-gray-400">{{ message.reasoning }}</div>
@@ -83,7 +84,7 @@
         </ul>
 
         <p v-if="message.status === 'error'" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300" role="alert">
-          {{ t('chat.failed') }}<template v-if="message.error">: {{ message.error }}</template>
+          {{ t('chat.failed') }}<template v-if="errorText">: {{ errorText }}</template>
         </p>
         <p v-else-if="message.error && !streaming && !(message.imageErrors && message.imageErrors.length)" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
           {{ t('chat.partialFailed') }}: {{ message.error }}
@@ -136,10 +137,13 @@ const pendingCount = computed(() => Math.max(0, props.message.pendingImages || 0
 const imageTotal = computed(() => props.message.attachments.length + pendingCount.value + (props.message.imageErrors?.length || 0))
 const hasImages = computed(() => props.message.attachments.length > 0 || pendingCount.value > 0)
 const imageEdge = computed(() => (imageTotal.value > 1 ? 200 : 320))
+// Shows what was actually produced, which can differ from the request.
 const imageCaption = computed(() => {
-  const parts = [props.message.model, props.message.aspect, t('chat.countShort', { n: props.message.attachments.length })]
+  const sizes = [...new Set(props.message.attachments.filter((a) => a.width && a.height).map((a) => `${a.width}×${a.height}`))]
+  const parts = [props.message.model, sizes.join(', '), t('chat.countShort', { n: props.message.attachments.length })]
   return parts.filter(Boolean).join(' · ')
 })
+const errorText = computed(() => (props.message.error === 'context_length_exceeded' ? t('chat.contextFull') : props.message.error))
 const placeholderStyle = computed(() => {
   const box = fitBox(undefined, undefined, imageEdge.value, props.message.aspect)
   return { width: `${box.width}px`, aspectRatio: `${box.width} / ${box.height}`, maxWidth: '100%' }

@@ -56,6 +56,7 @@ type Settings struct {
 	MaxTextBytes     int64  `json:"max_text_bytes"`
 	MaxAttachments   int    `json:"max_attachments"`
 	MaxConversations int    `json:"max_conversations"`
+	MaxContextTokens int    `json:"max_context_tokens"`
 }
 
 type Preference struct {
@@ -78,8 +79,14 @@ type Conversation struct {
 	ImageAspect     string    `json:"image_aspect"`
 	ImageCount      int       `json:"image_count"`
 	Title           string    `json:"title"`
+	WebSearch       bool      `json:"web_search"`
+	Unread          bool      `json:"unread"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+
+	// ContextStartID is the first message sent to the model; older ones were
+	// left out to fit the context window.
+	ContextStartID *int64 `json:"-"`
 }
 
 type Attachment struct {
@@ -117,27 +124,27 @@ type Message struct {
 
 func (s *Store) Settings(ctx context.Context) (Settings, error) {
 	var out Settings
-	err := s.DB.QueryRowContext(ctx, `SELECT enabled, system_prompt, max_image_bytes, max_pdf_bytes, max_text_bytes, max_attachments, max_conversations FROM jack_chat_settings WHERE id=1`).
-		Scan(&out.Enabled, &out.SystemPrompt, &out.MaxImageBytes, &out.MaxPDFBytes, &out.MaxTextBytes, &out.MaxAttachments, &out.MaxConversations)
+	err := s.DB.QueryRowContext(ctx, `SELECT enabled, system_prompt, max_image_bytes, max_pdf_bytes, max_text_bytes, max_attachments, max_conversations, max_context_tokens FROM jack_chat_settings WHERE id=1`).
+		Scan(&out.Enabled, &out.SystemPrompt, &out.MaxImageBytes, &out.MaxPDFBytes, &out.MaxTextBytes, &out.MaxAttachments, &out.MaxConversations, &out.MaxContextTokens)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Settings{Enabled: true, MaxImageBytes: 20 << 20, MaxPDFBytes: 32 << 20, MaxTextBytes: 2 << 20, MaxAttachments: 10, MaxConversations: 500}, nil
+		return Settings{Enabled: true, MaxImageBytes: 20 << 20, MaxPDFBytes: 32 << 20, MaxTextBytes: 2 << 20, MaxAttachments: 10, MaxConversations: 500, MaxContextTokens: DefaultContextTokens}, nil
 	}
 	return out, err
 }
 
 func (s *Store) SaveSettings(ctx context.Context, in Settings) (Settings, error) {
-	if in.MaxImageBytes <= 0 || in.MaxPDFBytes <= 0 || in.MaxTextBytes <= 0 || in.MaxAttachments <= 0 || in.MaxConversations <= 0 {
+	if in.MaxImageBytes <= 0 || in.MaxPDFBytes <= 0 || in.MaxTextBytes <= 0 || in.MaxAttachments <= 0 || in.MaxConversations <= 0 || in.MaxContextTokens < 8000 {
 		return Settings{}, apperrors.BadRequest("CHAT_SETTINGS_INVALID", "limits must be positive")
 	}
-	if in.MaxImageBytes > 64<<20 || in.MaxPDFBytes > 64<<20 || in.MaxTextBytes > 16<<20 || in.MaxAttachments > 32 {
+	if in.MaxImageBytes > 64<<20 || in.MaxPDFBytes > 64<<20 || in.MaxTextBytes > 16<<20 || in.MaxAttachments > 32 || in.MaxContextTokens > 2000000 {
 		return Settings{}, apperrors.BadRequest("CHAT_SETTINGS_INVALID", "limits are too large")
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO jack_chat_settings(id, enabled, system_prompt, max_image_bytes, max_pdf_bytes, max_text_bytes, max_attachments, max_conversations, updated_at)
-VALUES (1,$1,$2,$3,$4,$5,$6,$7,now())
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO jack_chat_settings(id, enabled, system_prompt, max_image_bytes, max_pdf_bytes, max_text_bytes, max_attachments, max_conversations, max_context_tokens, updated_at)
+VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,now())
 ON CONFLICT (id) DO UPDATE SET enabled=EXCLUDED.enabled, system_prompt=EXCLUDED.system_prompt, max_image_bytes=EXCLUDED.max_image_bytes,
  max_pdf_bytes=EXCLUDED.max_pdf_bytes, max_text_bytes=EXCLUDED.max_text_bytes, max_attachments=EXCLUDED.max_attachments,
- max_conversations=EXCLUDED.max_conversations, updated_at=now()`,
-		in.Enabled, in.SystemPrompt, in.MaxImageBytes, in.MaxPDFBytes, in.MaxTextBytes, in.MaxAttachments, in.MaxConversations)
+ max_conversations=EXCLUDED.max_conversations, max_context_tokens=EXCLUDED.max_context_tokens, updated_at=now()`,
+		in.Enabled, in.SystemPrompt, in.MaxImageBytes, in.MaxPDFBytes, in.MaxTextBytes, in.MaxAttachments, in.MaxConversations, in.MaxContextTokens)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -167,14 +174,18 @@ ON CONFLICT (user_id) DO UPDATE SET mode=EXCLUDED.mode, group_id=EXCLUDED.group_
 	return err
 }
 
-const conversationColumns = `id, mode, group_id, model, reasoning_effort, image_aspect, image_count, title, created_at, updated_at`
+const conversationColumns = `id, mode, group_id, model, reasoning_effort, image_aspect, image_count, title, web_search,
+ (last_reply_at IS NOT NULL AND (read_at IS NULL OR last_reply_at > read_at)) AS unread, context_start_id, created_at, updated_at`
 
 func scanConversation(row interface{ Scan(...any) error }) (Conversation, error) {
 	var c Conversation
-	var group sql.NullInt64
-	err := row.Scan(&c.ID, &c.Mode, &group, &c.Model, &c.ReasoningEffort, &c.ImageAspect, &c.ImageCount, &c.Title, &c.CreatedAt, &c.UpdatedAt)
+	var group, start sql.NullInt64
+	err := row.Scan(&c.ID, &c.Mode, &group, &c.Model, &c.ReasoningEffort, &c.ImageAspect, &c.ImageCount, &c.Title, &c.WebSearch, &c.Unread, &start, &c.CreatedAt, &c.UpdatedAt)
 	if group.Valid {
 		c.GroupID = &group.Int64
+	}
+	if start.Valid {
+		c.ContextStartID = &start.Int64
 	}
 	return c, err
 }
@@ -214,15 +225,15 @@ func (s *Store) CreateConversation(ctx context.Context, userID int64, in Convers
 			return Conversation{}, ErrTooMany
 		}
 	}
-	return scanConversation(s.DB.QueryRowContext(ctx, `INSERT INTO jack_chat_conversations(user_id, mode, group_id, model, reasoning_effort, image_aspect, image_count, title)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING `+conversationColumns,
-		userID, in.Mode, nullInt(in.GroupID), in.Model, in.ReasoningEffort, in.ImageAspect, in.ImageCount, in.Title))
+	return scanConversation(s.DB.QueryRowContext(ctx, `INSERT INTO jack_chat_conversations(user_id, mode, group_id, model, reasoning_effort, image_aspect, image_count, title, web_search)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING `+conversationColumns,
+		userID, in.Mode, nullInt(in.GroupID), in.Model, in.ReasoningEffort, in.ImageAspect, in.ImageCount, in.Title, in.WebSearch))
 }
 
 func (s *Store) UpdateConversation(ctx context.Context, userID int64, c Conversation) (Conversation, error) {
-	out, err := scanConversation(s.DB.QueryRowContext(ctx, `UPDATE jack_chat_conversations SET mode=$3, group_id=$4, model=$5, reasoning_effort=$6, image_aspect=$7, image_count=$8, title=$9, updated_at=now()
+	out, err := scanConversation(s.DB.QueryRowContext(ctx, `UPDATE jack_chat_conversations SET mode=$3, group_id=$4, model=$5, reasoning_effort=$6, image_aspect=$7, image_count=$8, title=$9, web_search=$10, updated_at=now()
 WHERE user_id=$1 AND id=$2 RETURNING `+conversationColumns,
-		userID, c.ID, c.Mode, nullInt(c.GroupID), c.Model, c.ReasoningEffort, c.ImageAspect, c.ImageCount, c.Title))
+		userID, c.ID, c.Mode, nullInt(c.GroupID), c.Model, c.ReasoningEffort, c.ImageAspect, c.ImageCount, c.Title, c.WebSearch))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Conversation{}, ErrNotFound
 	}
@@ -231,6 +242,41 @@ WHERE user_id=$1 AND id=$2 RETURNING `+conversationColumns,
 
 func (s *Store) TouchConversation(ctx context.Context, id int64) error {
 	_, err := s.DB.ExecContext(ctx, `UPDATE jack_chat_conversations SET updated_at=now() WHERE id=$1`, id)
+	return err
+}
+
+// MarkReplied records a finished reply; it stays unread until the user reads it.
+func (s *Store) MarkReplied(ctx context.Context, id int64) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE jack_chat_conversations SET updated_at=now(), last_reply_at=now() WHERE id=$1`, id)
+	return err
+}
+
+// MarkRead sets a conversation read, or unread when unread is true.
+func (s *Store) MarkRead(ctx context.Context, userID, id int64, unread bool) error {
+	query := `UPDATE jack_chat_conversations SET read_at=now() WHERE user_id=$1 AND id=$2`
+	if unread {
+		query = `UPDATE jack_chat_conversations SET read_at=NULL, last_reply_at=COALESCE(last_reply_at, now()) WHERE user_id=$1 AND id=$2`
+	}
+	res, err := s.DB.ExecContext(ctx, query, userID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UnreadCount counts the user's conversations with unread replies.
+func (s *Store) UnreadCount(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM jack_chat_conversations WHERE user_id=$1 AND last_reply_at IS NOT NULL AND (read_at IS NULL OR last_reply_at > read_at)`, userID).Scan(&n)
+	return n, err
+}
+
+// SetContextStart moves the first message sent to the model.
+func (s *Store) SetContextStart(ctx context.Context, id, messageID int64) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE jack_chat_conversations SET context_start_id=$2 WHERE id=$1`, id, messageID)
 	return err
 }
 

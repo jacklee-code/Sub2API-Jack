@@ -57,6 +57,7 @@ type RunState struct {
 	PendingImages int          `json:"pending_images"`
 	ImageErrors   []ImageError `json:"image_errors"`
 	Aspect        string       `json:"aspect,omitempty"`
+	Omitted       int          `json:"omitted"`
 }
 
 // Run is one generation that keeps going without a browser attached.
@@ -149,6 +150,9 @@ func (r *Run) apply(ev map[string]any) {
 		}
 		if a, ok := ev["aspect"].(string); ok {
 			s.Aspect = a
+		}
+		if n, ok := ev["omitted"].(int); ok {
+			s.Omitted = n
 		}
 	case "delta":
 		if t, ok := ev["text"].(string); ok {

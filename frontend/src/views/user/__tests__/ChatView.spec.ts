@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   deleteAttachment: vi.fn(),
   fetchAttachmentBlob: vi.fn(),
   resumeStream: vi.fn(),
+  markRead: vi.fn(),
+  getUnreadCount: vi.fn(),
   stopRun: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -38,14 +40,15 @@ const config = {
   ],
   preference: { mode: 'chat', group_id: 2, chat_model: 'gpt-5', reasoning_effort: '', image_model: '', image_aspect: '1:1', image_count: 1, web_search: false },
   reasoning_efforts: ['', 'low', 'high'],
-  image_aspects: ['1:1', '16:9'],
+  image_aspects: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', 'auto'],
+  image_sizes: { '1:1': '1024x1024', '3:2': '1536x1024', '2:3': '1024x1536', auto: '' },
   max_image_count: 4,
   storage_available: true,
   limits: { max_image_bytes: 20 << 20, max_pdf_bytes: 32 << 20, max_text_bytes: 2 << 20, max_attachments: 10 },
 }
 
 function conversation(overrides: Record<string, unknown> = {}) {
-  return { id: 5, mode: 'chat', group_id: 2, model: 'gpt-5', reasoning_effort: '', image_aspect: '1:1', image_count: 1, title: '', created_at: '', updated_at: '', ...overrides }
+  return { id: 5, mode: 'chat', group_id: 2, model: 'gpt-5', reasoning_effort: '', image_aspect: '1:1', image_count: 1, title: '', web_search: true, unread: false, created_at: '', updated_at: '', ...overrides }
 }
 
 function message(overrides: Record<string, unknown> = {}) {
@@ -73,6 +76,8 @@ beforeEach(() => {
   mocks.getModels.mockImplementation(async (_group: number, mode: string) => (mode === 'image' ? ['gpt-image-2'] : ['gpt-5', 'gpt-5-mini']))
   mocks.updateConversation.mockImplementation(async (id: number, patch: Record<string, unknown>) => conversation({ id, ...patch }))
   mocks.updatePreference.mockResolvedValue({})
+  mocks.markRead.mockResolvedValue(undefined)
+  mocks.getUnreadCount.mockResolvedValue(0)
 })
 
 describe('Chat mode', () => {
@@ -91,14 +96,15 @@ describe('Chat mode', () => {
     expect(wrapper.get('[data-testid="chat-settings"]').text()).toContain('gpt-5')
     expect(mocks.getModels).toHaveBeenCalledWith(2, 'chat')
 
-    await wrapper.get('button[aria-pressed="false"]').trigger('click')
+    expect(wrapper.get('[data-testid="chat-web-search"]').attributes('aria-pressed')).toBe('true')
     await wrapper.get('textarea').setValue('Hello there')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
     await flushPromises()
 
     expect(mocks.createConversation).toHaveBeenCalledWith(expect.objectContaining({ mode: 'chat', group_id: 2, model: 'gpt-5' }))
     expect(mocks.sendMessage).toHaveBeenCalledWith(5, expect.objectContaining({ text: 'Hello there', regenerate: false, web_search: true }), expect.any(Function), expect.any(AbortSignal))
-    expect(mocks.updatePreference).toHaveBeenCalledWith({ web_search: true })
+    expect(mocks.createConversation).toHaveBeenCalledWith(expect.objectContaining({ web_search: true }))
+    expect(mocks.markRead).toHaveBeenCalledWith(5)
     const html = wrapper.html()
     expect(html).toContain('<strong>Hi</strong>')
     expect(html).not.toContain('<script>')
@@ -175,15 +181,16 @@ describe('Chat mode', () => {
     expect(mocks.getModels).toHaveBeenLastCalledWith(2, 'image')
     await wrapper.get('[data-testid="chat-settings"]').trigger('click')
     expect(wrapper.find('[data-testid="chat-effort-range"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('chat.resolutionHint')
+    expect(wrapper.text()).toContain('chat.sizeHint')
+    expect(wrapper.text()).toContain('1536×1024')
 
-    await wrapper.get('[data-testid="chat-aspect-16:9"]').trigger('click')
+    await wrapper.get('[data-testid="chat-aspect-3:2"]').trigger('click')
     await wrapper.get('[data-testid="chat-count-2"]').trigger('click')
     await wrapper.get('textarea').setValue('a cat')
     await wrapper.get('button[aria-label="chat.send"]').trigger('click')
     await flushPromises()
 
-    expect(mocks.createConversation).toHaveBeenCalledWith(expect.objectContaining({ mode: 'image', model: 'gpt-image-2', image_aspect: '16:9', image_count: 2 }))
+    expect(mocks.createConversation).toHaveBeenCalledWith(expect.objectContaining({ mode: 'image', model: 'gpt-image-2', image_aspect: '3:2', image_count: 2 }))
     expect(mocks.sendImages).toHaveBeenCalledWith(5, expect.objectContaining({ prompt: 'a cat' }), expect.any(Function), expect.any(AbortSignal))
     const thumb = wrapper.get('button[title="image-1.png"]')
     // Two images in one reply share a 200px longest edge, keeping 16:9.
@@ -266,6 +273,51 @@ describe('Chat mode', () => {
     await flushPromises()
     expect(mocks.updateConversation).toHaveBeenCalledWith(5, { group_id: 1 })
     expect(mocks.getModels).toHaveBeenCalledWith(1, 'chat')
+    wrapper.unmount()
+  })
+
+  it('marks replies read when opened and lets the user mark a conversation unread', async () => {
+    mocks.listConversations.mockResolvedValue([conversation({ title: 'Done in background', unread: true }), conversation({ id: 6, title: 'Other', unread: true })])
+    mocks.listMessages.mockResolvedValue([message(), message({ id: 2, role: 'assistant', content: 'answer', omitted: 0 })])
+    const wrapper = render()
+    await flushPromises()
+    expect(mocks.markRead).toHaveBeenCalledWith(5)
+    expect(wrapper.find('[data-testid="chat-unread-5"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="chat-unread-6"]').exists()).toBe(true)
+
+    const markButtons = wrapper.findAll('button[aria-label="chat.markUnread"]')
+    await markButtons[0].trigger('click')
+    await flushPromises()
+    expect(mocks.markRead).toHaveBeenCalledWith(5, true)
+    wrapper.unmount()
+  })
+
+  it('switching web search updates the open conversation', async () => {
+    mocks.listConversations.mockResolvedValue([conversation({ web_search: false })])
+    const wrapper = render()
+    await flushPromises()
+    const toggle = wrapper.get('[data-testid="chat-web-search"]')
+    expect(toggle.attributes('aria-pressed')).toBe('false')
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(mocks.updateConversation).toHaveBeenCalledWith(5, { web_search: true })
+    wrapper.unmount()
+  })
+
+  it('shows left-out history and a readable context error', async () => {
+    mocks.createConversation.mockResolvedValue(conversation())
+    mocks.sendMessage.mockImplementation(async (_id: number, _input: unknown, onEvent: (e: ChatStreamEvent) => void) => {
+      onEvent({ type: 'start', conversation: conversation() as never, user_message: message({ id: 10 }) as never, assistant_message: message({ id: 11, role: 'assistant', content: '', status: 'streaming' }) as never, regenerate: false, omitted: 12 })
+      onEvent({ type: 'done', message: message({ id: 11, role: 'assistant', content: '', status: 'error', error: 'context_length_exceeded' }) as never })
+    })
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.get('textarea').setValue('long')
+    await wrapper.get('button[aria-label="chat.send"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('chat.omitted:{"n":12}')
+    expect(wrapper.text()).toContain('chat.contextFull')
+    expect(wrapper.text()).not.toContain('context_length_exceeded')
     wrapper.unmount()
   })
 
