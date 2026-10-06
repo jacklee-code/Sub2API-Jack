@@ -3,7 +3,6 @@ package jackchat
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -138,27 +137,24 @@ func TestDefaultGroupPrefersAvailableChoiceThenNewest(t *testing.T) {
 	require.Nil(t, DefaultGroup(nil, &pref))
 }
 
-func TestModelModesAndImageSizesAreAcceptedUpstream(t *testing.T) {
+func TestImageModelsAndRatioPrompts(t *testing.T) {
 	require.True(t, IsImageModel("gpt-image-2"))
 	require.True(t, IsImageModel(" GPT-Image-1 "))
 	require.False(t, IsImageModel("gpt-5.2"))
+	// Codex image accounts ignore size; the ratio is stated in the prompt.
+	require.Equal(t, "Horizontal widescreen image with a 16:9 aspect ratio. a cat", ImagePrompt("16:9", "a cat"))
+	require.Contains(t, ImagePrompt("9:16", "a cat"), "9:16")
+	require.Contains(t, ImagePrompt("9:16", "a cat"), "taller than wide")
+	require.Equal(t, "a cat", ImagePrompt("auto", "a cat"), "auto leaves the prompt alone")
+	require.Equal(t, ImagePrompt("1:1", "a cat"), ImagePrompt("21:9", "a cat"), "unknown ratios are square")
+	sizes := ImageSizes()
 	for _, aspect := range ImageAspects {
-		size, ok := ImageSize(aspect)
+		require.True(t, IsImageAspect(aspect), aspect)
+		_, ok := sizes[aspect]
 		require.True(t, ok, aspect)
-		if aspect == "auto" {
-			require.Empty(t, size, "auto lets the model choose")
-			continue
-		}
-		var w, h int
-		_, err := fmt.Sscanf(size, "%dx%d", &w, &h)
-		require.NoError(t, err)
-		// gpt-image ignores sizes below about 655k pixels and falls back to auto.
-		require.GreaterOrEqual(t, w*h, 655360, aspect)
-		require.Zero(t, w%16, aspect)
-		require.Zero(t, h%16, aspect)
 	}
-	_, ok := ImageSize("16:9")
-	require.False(t, ok, "1024x576 was below the minimum and is no longer offered")
+	require.Equal(t, "1672x941", sizes["16:9"])
+	require.False(t, IsImageAspect("21:9"))
 }
 
 func TestSelectContextKeepsAStableStartAndTheLastTurn(t *testing.T) {

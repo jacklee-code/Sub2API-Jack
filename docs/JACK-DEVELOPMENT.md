@@ -89,11 +89,13 @@ messages and attachment records live in `jack_chat_*` tables
 - Chat mode sends `/v1/responses` (`reasoning.effort`, optional `web_search`
   tool; citations are stored per message). Image mode lists only `gpt-image*`
   models and sends one `n=1` request per image (1-4, bounded by user concurrency),
-  using `/v1/images/edits` multipart when reference images are attached. Only the
-  standard gpt-image sizes are offered (1:1 1024x1024, 3:2 1536x1024, 2:3
-  1024x1536, plus auto): smaller sizes such as 1024x576 fall below the upstream
-  pixel minimum and are silently replaced by auto. The gateway bills by output
-  size, so 1536-pixel images land in its 2K tier. Captions show the real size.
+  using `/v1/images/edits` multipart when reference images are attached. Codex
+  image accounts ignore `size` (every requested size returned the same image), but
+  follow a ratio stated in the prompt, returning about 1.5 megapixels at that ratio
+  (1:1 1254x1254, 16:9 1672x941, 4:3 1448x1086, 2:3 1024x1536 in testing). So no
+  size is sent; `ImagePrompt` prepends a ratio sentence for the chosen ratio (none
+  for auto). The gateway bills by output size, so these images land in its 2K
+  tier. Captions show the real size.
 - Each chat request carries `prompt_cache_key: jackchat:<conversation id>`, which
   pins the conversation to one upstream account and prompt cache. History is
   estimated against `max_context_tokens` (admin setting, default 200,000); on

@@ -35,28 +35,47 @@ var (
 // model default; the group's own effort policy still applies upstream.
 var ReasoningEfforts = []string{"", "low", "medium", "high", "xhigh"}
 
-// imageSizes maps aspect ratios to the standard gpt-image sizes. Sizes below
-// the upstream minimum (about 655k pixels, e.g. 1024x576) are ignored there
-// and replaced by "auto", so only sizes the upstream accepts are offered.
-// "auto" sends no size and lets the model choose.
-var imageSizes = map[string]string{
-	"1:1":  "1024x1024",
-	"3:2":  "1536x1024",
-	"2:3":  "1024x1536",
-	"auto": "",
+// imageAspect describes how one aspect ratio is requested. Codex image
+// accounts ignore the size parameter (every size returned the same image), but
+// follow a ratio stated in the prompt, producing about 1.5 megapixels at that
+// ratio. So no size is sent; the ratio is written into the prompt instead.
+type imageAspect struct {
+	prompt  string // prepended to the user's prompt; empty for auto
+	typical string // output size seen in testing, for display
+}
+
+var imageAspects = map[string]imageAspect{
+	"1:1":  {"Square image with a 1:1 aspect ratio. ", "1254x1254"},
+	"16:9": {"Horizontal widescreen image with a 16:9 aspect ratio. ", "1672x941"},
+	"9:16": {"Vertical portrait image with a 9:16 aspect ratio (taller than wide). ", "941x1672"},
+	"4:3":  {"Horizontal image with a 4:3 aspect ratio. ", "1448x1086"},
+	"3:4":  {"Vertical portrait image with a 3:4 aspect ratio (taller than wide). ", "1086x1448"},
+	"3:2":  {"Horizontal image with a 3:2 aspect ratio. ", "1536x1024"},
+	"2:3":  {"Vertical portrait image with a 2:3 aspect ratio (taller than wide). ", "1024x1536"},
+	"auto": {"", ""},
 }
 
 // ImageAspects lists the aspect ratios in display order.
-var ImageAspects = []string{"1:1", "3:2", "2:3", "auto"}
+var ImageAspects = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "auto"}
 
 // DefaultContextTokens is the default estimated token budget for the history
 // sent with each chat turn.
 const DefaultContextTokens = 200000
 
-// ImageSize returns the request size for an aspect ratio ("" for auto).
-func ImageSize(aspect string) (string, bool) {
-	size, ok := imageSizes[aspect]
-	return size, ok
+// IsImageAspect reports whether aspect is offered.
+func IsImageAspect(aspect string) bool {
+	_, ok := imageAspects[aspect]
+	return ok
+}
+
+// ImagePrompt returns the prompt sent upstream: the ratio sentence followed by
+// the user's prompt. Unknown ratios are treated as square.
+func ImagePrompt(aspect, prompt string) string {
+	a, ok := imageAspects[aspect]
+	if !ok {
+		a = imageAspects["1:1"]
+	}
+	return a.prompt + prompt
 }
 
 // IsImageModel reports whether model is an image-generation model.
@@ -319,11 +338,11 @@ func randomName() string {
 	return hex.EncodeToString(raw)
 }
 
-// ImageSizes returns a copy of the ratio-to-size table for display.
+// ImageSizes returns the typical output size of each ratio for display.
 func ImageSizes() map[string]string {
-	out := make(map[string]string, len(imageSizes))
-	for k, v := range imageSizes {
-		out[k] = v
+	out := make(map[string]string, len(imageAspects))
+	for k, v := range imageAspects {
+		out[k] = v.typical
 	}
 	return out
 }

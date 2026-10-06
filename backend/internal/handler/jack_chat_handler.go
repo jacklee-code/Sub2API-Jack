@@ -248,7 +248,7 @@ func (p conversationPatch) apply(conv *jackchat.Conversation, pref *jackchat.Pre
 		pref.ReasoningEffort = *p.ReasoningEffort
 	}
 	if p.ImageAspect != nil {
-		if _, ok := jackchat.ImageSize(*p.ImageAspect); !ok {
+		if !jackchat.IsImageAspect(*p.ImageAspect) {
 			return apperrors.BadRequest("CHAT_ASPECT_INVALID", "invalid aspect ratio")
 		}
 		conv.ImageAspect = *p.ImageAspect
@@ -334,7 +334,7 @@ func (h *JackChatHandler) CreateConversation(c *gin.Context) {
 	if conv.ImageCount < 1 || conv.ImageCount > jackchat.MaxImageCount {
 		conv.ImageCount = 1
 	}
-	if _, ok := jackchat.ImageSize(conv.ImageAspect); !ok {
+	if !jackchat.IsImageAspect(conv.ImageAspect) {
 		conv.ImageAspect = "1:1"
 	}
 	out, err := h.svc.Store.CreateConversation(ctx, userID, conv, settings.MaxConversations)

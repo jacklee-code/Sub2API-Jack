@@ -40,7 +40,7 @@ const config = {
   ],
   preference: { mode: 'chat', group_id: 2, chat_model: 'gpt-5', reasoning_effort: '', image_model: '', image_aspect: '1:1', image_count: 1, web_search: false },
   reasoning_efforts: ['', 'low', 'high'],
-  image_aspects: ['1:1', '3:2', '2:3', 'auto'],
+  image_aspects: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', 'auto'],
   image_sizes: { '1:1': '1024x1024', '3:2': '1536x1024', '2:3': '1024x1536', auto: '' },
   max_image_count: 4,
   storage_available: true,

@@ -55,11 +55,8 @@ func (s *Service) SendImages(ctx context.Context, client Client, userID int64, c
 	if conv.Mode != ModeImage || !IsImageModel(conv.Model) {
 		return ErrBadModel
 	}
-	size, ok := ImageSize(conv.ImageAspect)
-	if !ok {
-		// Ratios from before the supported list changed fall back to square.
+	if !IsImageAspect(conv.ImageAspect) {
 		conv.ImageAspect = "1:1"
-		size, _ = ImageSize(conv.ImageAspect)
 	}
 	count := conv.ImageCount
 	if count < 1 || count > MaxImageCount {
@@ -126,7 +123,7 @@ func (s *Service) SendImages(ctx context.Context, client Client, userID int64, c
 				return
 			}
 			defer func() { <-sem }()
-			data, err := s.generateOne(ctx, client, key, conv.Model, prompt, size, refs)
+			data, err := s.generateOne(ctx, client, key, conv.Model, ImagePrompt(conv.ImageAspect, prompt), refs)
 			if err != nil {
 				results <- imageResult{index: i, err: err.Error()}
 				return
@@ -171,20 +168,15 @@ type refImage struct {
 	data []byte
 }
 
-func (s *Service) generateOne(ctx context.Context, client Client, key, model, prompt, size string, refs []refImage) ([]byte, error) {
+// generateOne requests one image. No size is sent: the upstream ignores it, and
+// the ratio is part of prompt (see ImagePrompt).
+func (s *Service) generateOne(ctx context.Context, client Client, key, model, prompt string, refs []refImage) ([]byte, error) {
 	var body []byte
 	var contentType, path string
 	fields := map[string]string{"model": model, "prompt": prompt, "n": "1"}
-	if size != "" {
-		fields["size"] = size
-	}
 	if len(refs) == 0 {
 		path, contentType = "/v1/images/generations", "application/json"
-		payload := map[string]any{"model": model, "prompt": prompt, "n": 1}
-		if size != "" {
-			payload["size"] = size
-		}
-		body, _ = json.Marshal(payload)
+		body, _ = json.Marshal(map[string]any{"model": model, "prompt": prompt, "n": 1})
 	} else {
 		path = "/v1/images/edits"
 		var buf bytes.Buffer
