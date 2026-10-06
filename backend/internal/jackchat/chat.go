@@ -23,6 +23,9 @@ type SendInput struct {
 
 const maxTitleRunes = 40
 
+// progressInterval is how often a streaming reply is saved.
+const progressInterval = 1500 * time.Millisecond
+
 func titleFrom(text string, atts []Attachment) string {
 	t := strings.Join(strings.Fields(text), " ")
 	if t == "" && len(atts) > 0 {
@@ -149,7 +152,7 @@ func (s *Service) attachmentPart(ctx context.Context, a Attachment, settings Set
 }
 
 // SendChat runs one chat turn and streams the reply through emit.
-func (s *Service) SendChat(ctx context.Context, orig *http.Request, userID int64, conv Conversation, in SendInput, emit Emit) error {
+func (s *Service) SendChat(ctx context.Context, client Client, userID int64, conv Conversation, in SendInput, emit Emit) error {
 	settings, err := s.Store.Settings(ctx)
 	if err != nil {
 		return err
@@ -185,6 +188,17 @@ func (s *Service) SendChat(ctx context.Context, orig *http.Request, userID int64
 	parser := &responsesParser{}
 	done := false
 	streamErr := ""
+	lastSave := time.Now()
+	saveProgress := func() {
+		// Keeps the partial reply readable after a reload or on another instance.
+		if time.Since(lastSave) < progressInterval {
+			return
+		}
+		lastSave = time.Now()
+		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.Store.SaveProgress(saveCtx, reply.ID, text.String(), reasoning.String())
+	}
 	w := newCaptureWriter(1<<20, func(line string) {
 		ev, ok := parser.line(line)
 		if !ok {
@@ -193,10 +207,12 @@ func (s *Service) SendChat(ctx context.Context, orig *http.Request, userID int64
 		if ev.Text != "" {
 			_, _ = text.WriteString(ev.Text)
 			emit(map[string]any{"type": "delta", "text": ev.Text})
+			saveProgress()
 		}
 		if ev.Reasoning != "" {
 			_, _ = reasoning.WriteString(ev.Reasoning)
 			emit(map[string]any{"type": "reasoning", "text": ev.Reasoning})
+			saveProgress()
 		}
 		if ev.Search != "" {
 			emit(map[string]any{"type": "search", "status": ev.Search, "query": ev.Query})
@@ -216,18 +232,18 @@ func (s *Service) SendChat(ctx context.Context, orig *http.Request, userID int64
 			}
 		}
 	})
-	dispatchErr := s.dispatch(ctx, orig, key, http.MethodPost, "/v1/responses", "application/json", body, w)
+	dispatchErr := s.dispatch(ctx, client, key, http.MethodPost, "/v1/responses", "application/json", body, w)
 	w.finish()
 
 	reply.Content = text.String()
 	reply.Reasoning = strings.TrimSpace(reasoning.String())
 	switch {
+	case ctx.Err() != nil && !done:
+		reply.Status, reply.Error = runEndStatus(ctx)
 	case dispatchErr != nil:
 		reply.Status, reply.Error = StatusError, dispatchErr.Error()
 	case w.statusCode() >= 300:
 		reply.Status, reply.Error = StatusError, gatewayError(w.statusCode(), w.body.Bytes())
-	case ctx.Err() != nil:
-		reply.Status = StatusAborted
 	case streamErr != "":
 		reply.Status, reply.Error = StatusError, streamErr
 	case !done:

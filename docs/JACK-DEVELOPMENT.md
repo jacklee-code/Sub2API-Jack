@@ -97,6 +97,13 @@ messages and attachment records live in `jack_chat_*` tables
   `/api/v1/chat/attachments/:id/content` after an ownership check. Reused images are
   copied as rows and the object is deleted only when no row references it; unsent
   uploads are removed after a day.
+- Replies run in the background (`jackchat.Runs`), not on the browser request:
+  leaving the page, switching conversations or closing the tab only detaches.
+  `GET /chat/conversations/:id/stream` reattaches with a snapshot plus live
+  events, and `POST .../stop` cancels. Streaming text is saved every 1.5 s, so a
+  reload (or another instance) still shows progress. Runs live in process memory,
+  are limited to one per conversation and to 30 minutes; replies left
+  `streaming` after that (for example across a restart) are marked interrupted.
 - The `/api/v1/chat` routes skip the audit middleware because their bodies are
   conversation content. `/admin/chat-settings` stores the switch, an optional
   system prompt and the limits.

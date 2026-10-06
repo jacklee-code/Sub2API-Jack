@@ -67,6 +67,7 @@ type Engine interface {
 
 type Service struct {
 	Store   *Store
+	Runs    *Runs
 	apiKeys *service.APIKeyService
 	keyRepo service.APIKeyRepository
 	users   service.UserRepository
@@ -78,7 +79,7 @@ type Service struct {
 type engineHolder struct{ Engine }
 
 func NewService(store *Store, apiKeys *service.APIKeyService, keyRepo service.APIKeyRepository, users service.UserRepository, storage *service.ImageStorageSettingService) *Service {
-	return &Service{Store: store, apiKeys: apiKeys, keyRepo: keyRepo, users: users, storage: storage}
+	return &Service{Store: store, Runs: NewRuns(), apiKeys: apiKeys, keyRepo: keyRepo, users: users, storage: storage}
 }
 
 // SetEngine wires the router that serves dispatched gateway requests.
@@ -191,13 +192,13 @@ var forwardedHeaders = []string{"User-Agent", "Accept-Language", "X-Forwarded-Fo
 
 // dispatch runs a gateway request in-process with the hidden key, exactly as
 // an API client using that key would. Cancelling ctx cancels the request.
-func (s *Service) dispatch(ctx context.Context, orig *http.Request, key, method, path, contentType string, body []byte, w http.ResponseWriter) error {
+func (s *Service) dispatch(ctx context.Context, client Client, key, method, path, contentType string, body []byte, w http.ResponseWriter) error {
 	holder := s.engine.Load()
 	if holder == nil || holder.Engine == nil {
 		return ErrDispatcherMissing
 	}
 	// A fresh context keeps panel-session values out of the gateway request
-	// while still following the browser connection's cancellation.
+	// while still following ctx's cancellation.
 	inner, cancel := context.WithCancel(context.Background())
 	stop := context.AfterFunc(ctx, cancel)
 	defer func() { stop(); cancel() }()
@@ -209,14 +210,10 @@ func (s *Service) dispatch(ctx context.Context, orig *http.Request, key, method,
 	if err != nil {
 		return err
 	}
-	if orig != nil {
-		req.RemoteAddr = orig.RemoteAddr
-		req.Host = orig.Host
-		for _, h := range forwardedHeaders {
-			if v := orig.Header.Values(h); len(v) > 0 {
-				req.Header[h] = append([]string(nil), v...)
-			}
-		}
+	req.RemoteAddr = client.RemoteAddr
+	req.Host = client.Host
+	for h, v := range client.Header {
+		req.Header[h] = append([]string(nil), v...)
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	if contentType != "" {
@@ -228,13 +225,13 @@ func (s *Service) dispatch(ctx context.Context, orig *http.Request, key, method,
 
 // Models lists the group's models for mode, as /v1/models returns them to an
 // API client with a key in that group.
-func (s *Service) Models(ctx context.Context, orig *http.Request, userID, groupID int64, mode string) ([]string, error) {
+func (s *Service) Models(ctx context.Context, client Client, userID, groupID int64, mode string) ([]string, error) {
 	key, err := s.EnsureKey(ctx, userID, groupID)
 	if err != nil {
 		return nil, err
 	}
 	w := newCaptureWriter(8<<20, nil)
-	if err := s.dispatch(ctx, orig, key, http.MethodGet, "/v1/models", "", nil, w); err != nil {
+	if err := s.dispatch(ctx, client, key, http.MethodGet, "/v1/models", "", nil, w); err != nil {
 		return nil, err
 	}
 	if w.statusCode() >= 300 {
@@ -298,8 +295,12 @@ func (s *Service) DeleteObjects(keys []string) {
 	}()
 }
 
-// CleanupPending deletes uploads that were never sent.
+// CleanupPending deletes uploads that were never sent and marks replies whose
+// run can no longer be running as interrupted.
 func (s *Service) CleanupPending(ctx context.Context) {
+	if err := s.Store.ExpireStreaming(ctx, s.Store.Now().Add(-RunTimeout-5*time.Minute)); err != nil {
+		log.Printf("jackchat: expire streaming replies: %v", err)
+	}
 	keys, err := s.Store.StalePending(ctx, s.Store.Now().Add(-24*time.Hour))
 	if err != nil {
 		log.Printf("jackchat: cleanup pending uploads: %v", err)

@@ -324,6 +324,19 @@ func (s *Store) FinishMessage(ctx context.Context, m Message) error {
 	return err
 }
 
+// SaveProgress stores the partial text of a reply that is still streaming.
+func (s *Store) SaveProgress(ctx context.Context, id int64, content, reasoning string) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE jack_chat_messages SET content=$2, reasoning=$3 WHERE id=$1 AND status=$4`, id, content, reasoning, StatusStreaming)
+	return err
+}
+
+// ExpireStreaming marks replies still streaming since before as interrupted,
+// for example after a restart cut their run short.
+func (s *Store) ExpireStreaming(ctx context.Context, before time.Time) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE jack_chat_messages SET status=$1, error=$2 WHERE status=$3 AND created_at < $4`, StatusError, "generation was interrupted", StatusStreaming, before)
+	return err
+}
+
 // DeleteTrailingAssistant removes the final assistant reply of a conversation
 // (used by regenerate) and returns orphaned storage keys.
 func (s *Store) DeleteTrailingAssistant(ctx context.Context, userID, conversationID int64) ([]string, error) {
