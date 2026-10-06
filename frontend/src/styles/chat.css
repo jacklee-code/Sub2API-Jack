@@ -1,0 +1,116 @@
+/* Jack chat mode. Colours come from the themed gray/primary palettes. */
+.chat-page {
+  height: calc(100vh - 4rem - 2rem);
+  height: calc(100dvh - 4rem - 2rem);
+  min-height: 420px;
+}
+
+@media (min-width: 1024px) {
+  .chat-page {
+    height: calc(100vh - 4rem - 4rem);
+    height: calc(100dvh - 4rem - 4rem);
+  }
+}
+
+.chat-markdown {
+  @apply break-words text-[15px] leading-7 text-gray-800 dark:text-gray-200;
+}
+
+.chat-markdown > :first-child {
+  @apply mt-0;
+}
+
+.chat-markdown > :last-child {
+  @apply mb-0;
+}
+
+.chat-markdown p {
+  @apply my-3;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4 {
+  @apply mb-2 mt-5 font-semibold text-gray-900 dark:text-white;
+}
+
+.chat-markdown h1 {
+  @apply text-xl;
+}
+
+.chat-markdown h2 {
+  @apply text-lg;
+}
+
+.chat-markdown h3,
+.chat-markdown h4 {
+  @apply text-base;
+}
+
+.chat-markdown a {
+  @apply text-primary-600 underline underline-offset-2 dark:text-primary-400;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  @apply my-3 ml-6 space-y-1;
+}
+
+.chat-markdown ul {
+  @apply list-disc;
+}
+
+.chat-markdown ol {
+  @apply list-decimal;
+}
+
+.chat-markdown blockquote {
+  @apply my-3 border-l-4 border-gray-300 pl-4 text-gray-600 dark:border-dark-500 dark:text-gray-400;
+}
+
+.chat-markdown table {
+  @apply my-3 block w-full overflow-x-auto border-collapse text-sm;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  @apply border border-gray-200 px-3 py-1.5 text-left dark:border-dark-600;
+}
+
+.chat-markdown th {
+  @apply bg-gray-50 font-semibold dark:bg-dark-700;
+}
+
+.chat-markdown hr {
+  @apply my-5 border-gray-200 dark:border-dark-600;
+}
+
+.chat-markdown :not(pre) > code {
+  @apply rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-dark-700;
+}
+
+.chat-markdown .chat-code {
+  @apply my-3 overflow-hidden rounded-xl border border-gray-200 dark:border-dark-600;
+}
+
+.chat-markdown .chat-code-bar {
+  @apply flex items-center justify-between bg-gray-100 px-3 py-1.5 font-mono text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400;
+}
+
+.chat-markdown .chat-code-copy {
+  @apply rounded px-2 py-0.5 font-sans text-xs hover:bg-gray-200 hover:text-gray-800 dark:hover:bg-dark-600 dark:hover:text-gray-100;
+}
+
+.chat-markdown pre {
+  @apply overflow-x-auto bg-gray-50 p-3 text-[13px] leading-6 dark:bg-dark-900;
+}
+
+.chat-markdown pre code {
+  @apply font-mono;
+}
+
+.chat-cursor::after {
+  content: '▍';
+  @apply ml-0.5 animate-pulse text-gray-400;
+}

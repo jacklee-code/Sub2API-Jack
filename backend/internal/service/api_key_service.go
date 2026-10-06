@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/jackchatkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/dgraph-io/ristretto"
@@ -403,6 +404,10 @@ func (s *APIKeyService) ValidateCustomKey(key string) error {
 	// 检查长度
 	if len(key) < 16 {
 		return ErrAPIKeyTooShort
+	}
+	// Jack chat-mode keys own this prefix.
+	if jackchatkey.IsChatKey(key) {
+		return ErrAPIKeyInvalidChars
 	}
 
 	// 检查字符：只允许字母、数字、下划线、连字符

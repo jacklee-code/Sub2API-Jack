@@ -24,8 +24,10 @@ private agent memory is not required. Keep workflow changes in the shared guide.
 ## Code and data boundaries
 
 - Keep Jack behavior in focused modules: `backend/internal/jackfleet`,
-  `backend/jackmigrations`, `backend/internal/handler/admin/fleet_handler.go`, and
-  `frontend/src/views/admin/FleetsView.vue`. Keep upstream integration edits small
+  `backend/internal/jackchat`, `backend/jackmigrations`,
+  `backend/internal/handler/admin/fleet_handler.go`,
+  `backend/internal/handler/jack_chat_handler.go`,
+  `frontend/src/views/admin/FleetsView.vue` and `frontend/src/views/user/ChatView.vue`. Keep upstream integration edits small
   and preserve upstream Go module/import paths.
 - Keep the Jack frontend look in `frontend/jack/` and `frontend/src/jack/`; do not
   restyle upstream `.vue` files or `src/style.css`. See the theme layer section in

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/jackchatkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -81,10 +82,15 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 	if k == nil {
 		return nil
 	}
+	key := k.Key
+	if jackchatkey.IsChatKey(key) {
+		// Chat-mode credentials stay server-side.
+		key = jackchatkey.Prefix + "***"
+	}
 	out := &APIKey{
 		ID:                 k.ID,
 		UserID:             k.UserID,
-		Key:                k.Key,
+		Key:                key,
 		Name:               k.Name,
 		GroupID:            k.GroupID,
 		Status:             k.Status,
@@ -739,6 +745,7 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		CacheTTLOverridden:        l.CacheTTLOverridden,
 		BillingMode:               l.BillingMode,
 		CreatedAt:                 l.CreatedAt,
+		ChatMode:                  l.APIKey != nil && jackchatkey.IsChatKey(l.APIKey.Key),
 		User:                      UserFromServiceShallow(l.User),
 		APIKey:                    APIKeyFromService(l.APIKey),
 		Group:                     GroupFromServiceShallow(l.Group),

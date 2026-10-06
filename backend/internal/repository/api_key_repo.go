@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/jackchatkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 
 	"entgo.io/ent/dialect"
@@ -433,7 +434,8 @@ func (r *apiKeyRepository) deleteWithTombstone(ctx context.Context, exec *dbent.
 }
 
 func (r *apiKeyRepository) apiKeyListByUserIDQuery(userID int64, filters service.APIKeyListFilters) *dbent.APIKeyQuery {
-	q := r.activeQuery().Where(apikey.UserIDEQ(userID))
+	// Jack chat-mode keys are internal and never listed to the user.
+	q := r.activeQuery().Where(apikey.UserIDEQ(userID), apikey.Not(apikey.KeyHasPrefix(jackchatkey.Prefix)))
 
 	if filters.Search != "" {
 		q = q.Where(apikey.Or(
@@ -610,7 +612,7 @@ func (r *apiKeyRepository) VerifyOwnership(ctx context.Context, userID int64, ap
 }
 
 func (r *apiKeyRepository) CountByUserID(ctx context.Context, userID int64) (int64, error) {
-	count, err := r.activeQuery().Where(apikey.UserIDEQ(userID)).Count(ctx)
+	count, err := r.activeQuery().Where(apikey.UserIDEQ(userID), apikey.Not(apikey.KeyHasPrefix(jackchatkey.Prefix))).Count(ctx)
 	return int64(count), err
 }
 
