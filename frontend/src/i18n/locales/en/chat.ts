@@ -38,6 +38,7 @@ export default {
     attachReference: 'Add reference images',
     webSearch: 'Web search',
     webSearchHint: 'Let the model search the web',
+    webSearchOn: 'On',
     searching: 'Searching the web…',
     searched: 'Searched: {query}',
     searchedPlain: 'Searched the web',
