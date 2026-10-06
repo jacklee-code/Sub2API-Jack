@@ -45,12 +45,12 @@ func (w *captureWriter) Write(p []byte) (int, error) {
 				w.line.Reset()
 				continue
 			}
-			w.line.WriteByte(b)
+			_ = w.line.WriteByte(b)
 		}
 		return len(p), nil
 	}
 	if w.body.Len()+len(p) <= w.limit {
-		w.body.Write(p)
+		_, _ = w.body.Write(p)
 	}
 	return len(p), nil
 }
@@ -187,7 +187,7 @@ func completedText(output gjson.Result) string {
 		}
 		item.Get("content").ForEach(func(_, part gjson.Result) bool {
 			if part.Get("type").String() == "output_text" {
-				b.WriteString(part.Get("text").String())
+				_, _ = b.WriteString(part.Get("text").String())
 			}
 			return true
 		})

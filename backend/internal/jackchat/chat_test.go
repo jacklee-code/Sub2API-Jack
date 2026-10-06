@@ -35,8 +35,8 @@ func TestResponsesParserCollectsTextReasoningSearchAndUsage(t *testing.T) {
 		if !ok {
 			continue
 		}
-		text.WriteString(ev.Text)
-		reasoning.WriteString(ev.Reasoning)
+		_, _ = text.WriteString(ev.Text)
+		_, _ = reasoning.WriteString(ev.Reasoning)
 		if ev.Search != "" {
 			searches = append(searches, ev.Search+":"+ev.Query)
 		}
@@ -108,10 +108,16 @@ func TestBuildResponsesBodyUsesHistoryOptionsAndTools(t *testing.T) {
 	require.Equal(t, "Be brief.", got["instructions"])
 	require.Equal(t, map[string]any{"effort": "high", "summary": "auto"}, got["reasoning"])
 	require.Equal(t, []any{map[string]any{"type": "web_search"}}, got["tools"])
-	input := got["input"].([]any)
+	input, ok := got["input"].([]any)
+	require.True(t, ok)
 	require.Len(t, input, 3, "error replies are not sent back to the model")
-	first := input[0].(map[string]any)["content"].([]any)
-	require.Contains(t, first[1].(map[string]any)["text"], "file body")
+	turn, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	first, ok := turn["content"].([]any)
+	require.True(t, ok)
+	part, ok := first[1].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, part["text"], "file body")
 
 	body, err = s.BuildResponsesBody(context.Background(), Conversation{Model: "gpt-5"}, history[:1], Settings{}, false)
 	require.NoError(t, err)

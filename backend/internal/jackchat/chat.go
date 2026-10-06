@@ -191,11 +191,11 @@ func (s *Service) SendChat(ctx context.Context, orig *http.Request, userID int64
 			return
 		}
 		if ev.Text != "" {
-			text.WriteString(ev.Text)
+			_, _ = text.WriteString(ev.Text)
 			emit(map[string]any{"type": "delta", "text": ev.Text})
 		}
 		if ev.Reasoning != "" {
-			reasoning.WriteString(ev.Reasoning)
+			_, _ = reasoning.WriteString(ev.Reasoning)
 			emit(map[string]any{"type": "reasoning", "text": ev.Reasoning})
 		}
 		if ev.Search != "" {
