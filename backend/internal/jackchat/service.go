@@ -35,21 +35,25 @@ var (
 // model default; the group's own effort policy still applies upstream.
 var ReasoningEfforts = []string{"", "low", "medium", "high", "xhigh"}
 
-// imageSizes maps aspect ratios to 1K-tier sizes (longest edge 1024).
+// imageSizes maps aspect ratios to the standard gpt-image sizes. Sizes below
+// the upstream minimum (about 655k pixels, e.g. 1024x576) are ignored there
+// and replaced by "auto", so only sizes the upstream accepts are offered.
+// "auto" sends no size and lets the model choose.
 var imageSizes = map[string]string{
 	"1:1":  "1024x1024",
-	"4:3":  "1024x768",
-	"3:4":  "768x1024",
-	"3:2":  "1024x688",
-	"2:3":  "688x1024",
-	"16:9": "1024x576",
-	"9:16": "576x1024",
+	"3:2":  "1536x1024",
+	"2:3":  "1024x1536",
+	"auto": "",
 }
 
 // ImageAspects lists the aspect ratios in display order.
-var ImageAspects = []string{"1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"}
+var ImageAspects = []string{"1:1", "3:2", "2:3", "auto"}
 
-// ImageSize returns the request size for an aspect ratio.
+// DefaultContextTokens is the default estimated token budget for the history
+// sent with each chat turn.
+const DefaultContextTokens = 200000
+
+// ImageSize returns the request size for an aspect ratio ("" for auto).
 func ImageSize(aspect string) (string, bool) {
 	size, ok := imageSizes[aspect]
 	return size, ok
@@ -313,4 +317,13 @@ func randomName() string {
 	raw := make([]byte, 16)
 	_, _ = rand.Read(raw)
 	return hex.EncodeToString(raw)
+}
+
+// ImageSizes returns a copy of the ratio-to-size table for display.
+func ImageSizes() map[string]string {
+	out := make(map[string]string, len(imageSizes))
+	for k, v := range imageSizes {
+		out[k] = v
+	}
+	return out
 }

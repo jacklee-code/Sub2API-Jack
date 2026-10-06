@@ -57,7 +57,9 @@ func (s *Service) SendImages(ctx context.Context, client Client, userID int64, c
 	}
 	size, ok := ImageSize(conv.ImageAspect)
 	if !ok {
-		return ErrBadModel
+		// Ratios from before the supported list changed fall back to square.
+		conv.ImageAspect = "1:1"
+		size, _ = ImageSize(conv.ImageAspect)
 	}
 	count := conv.ImageCount
 	if count < 1 || count > MaxImageCount {
@@ -172,14 +174,22 @@ type refImage struct {
 func (s *Service) generateOne(ctx context.Context, client Client, key, model, prompt, size string, refs []refImage) ([]byte, error) {
 	var body []byte
 	var contentType, path string
+	fields := map[string]string{"model": model, "prompt": prompt, "n": "1"}
+	if size != "" {
+		fields["size"] = size
+	}
 	if len(refs) == 0 {
 		path, contentType = "/v1/images/generations", "application/json"
-		body, _ = json.Marshal(map[string]any{"model": model, "prompt": prompt, "size": size, "n": 1})
+		payload := map[string]any{"model": model, "prompt": prompt, "n": 1}
+		if size != "" {
+			payload["size"] = size
+		}
+		body, _ = json.Marshal(payload)
 	} else {
 		path = "/v1/images/edits"
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
-		for k, v := range map[string]string{"model": model, "prompt": prompt, "size": size, "n": "1"} {
+		for k, v := range fields {
 			_ = mw.WriteField(k, v)
 		}
 		for i, r := range refs {

@@ -15,6 +15,7 @@
           @create="startNew()"
           @rename="renameConversation"
           @delete="deleteTarget = $event"
+          @mark-unread="markUnread"
         />
       </aside>
 
@@ -128,6 +129,7 @@
                   :aspect="settings.image_aspect"
                   :count="settings.image_count"
                   :max-count="maxImageCount"
+                  :image-sizes="config?.image_sizes"
                   :disabled="!ready || busy"
                   @update:group-id="pickGroup"
                   @update:model="pickModel"
@@ -158,7 +160,7 @@
 
 <script setup lang="ts">
 import '@/styles/chat.css'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -173,9 +175,11 @@ import type { DraftAttachment, UiMessage } from '@/components/chat/types'
 import * as chatAPI from '@/api/chat'
 import type { ChatAttachment, ChatConfig, ChatConversation, ChatMode, ChatStreamEvent, ConversationPatch } from '@/api/chat'
 import { useAppStore } from '@/stores'
+import { useChatUnread } from '@/composables/useChatUnread'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { unreadCount, refresh: refreshUnread } = useChatUnread()
 
 const config = ref<ChatConfig | null>(null)
 const loadingConfig = ref(true)
@@ -264,6 +268,7 @@ function applyConversation(conv: ChatConversation | null) {
     settings.reasoning_effort = conv.reasoning_effort
     settings.image_aspect = conv.image_aspect || '1:1'
     settings.image_count = conv.image_count || 1
+    webSearch.value = conv.web_search
   } else if (pref) {
     settings.mode = pref.mode === 'image' ? 'image' : 'chat'
     settings.group_id = pref.group_id ?? groups.value[0]?.id ?? null
@@ -271,6 +276,7 @@ function applyConversation(conv: ChatConversation | null) {
     settings.reasoning_effort = pref.reasoning_effort
     settings.image_aspect = pref.image_aspect || '1:1'
     settings.image_count = pref.image_count || 1
+    webSearch.value = true
   }
 }
 
@@ -403,6 +409,7 @@ async function selectConversation(conv: ChatConversation) {
     await scrollToBottom()
     const last = messages.value[messages.value.length - 1]
     if (last?.role === 'assistant' && last.status === 'streaming') void attach(conv)
+    else if (conv.unread) void markRead(conv.id)
   } catch (e) {
     appStore.showError(errorText(e))
   } finally {
@@ -543,6 +550,7 @@ async function ensureConversation(): Promise<ChatConversation> {
     reasoning_effort: settings.reasoning_effort,
     image_aspect: settings.image_aspect,
     image_count: settings.image_count,
+    web_search: webSearch.value,
   })
   conversations.value.unshift(conv)
   activeId.value = conv.id
@@ -561,7 +569,7 @@ function handleEvent(ev: ChatStreamEvent, convId: number, tempUserId: number | n
         const i = list.findIndex((m) => m.id === tempUserId)
         if (i >= 0) list.splice(i, 1, { ...ev.user_message, aspect: ev.aspect })
       }
-      list.push({ ...ev.assistant_message, attachments: [], citations: [], aspect: ev.aspect || settings.image_aspect, pendingImages: ev.count || 0, imageErrors: [] })
+      list.push({ ...ev.assistant_message, attachments: [], citations: [], aspect: ev.aspect || settings.image_aspect, pendingImages: ev.count || 0, imageErrors: [], omitted: ev.omitted || 0 })
       break
     }
     case 'snapshot': {
@@ -574,6 +582,7 @@ function handleEvent(ev: ChatStreamEvent, convId: number, tempUserId: number | n
         pendingImages: ev.pending_images,
         imageErrors: ev.image_errors || [],
         aspect: ev.aspect || settings.image_aspect,
+        omitted: ev.omitted || 0,
       }
       const i = list.findIndex((m) => m.id === ev.message.id)
       if (i >= 0) list.splice(i, 1, live)
@@ -622,6 +631,7 @@ function handleEvent(ev: ChatStreamEvent, convId: number, tempUserId: number | n
           attachments: ev.message.attachments?.length ? ev.message.attachments : assistant.attachments,
         })
       }
+      void markRead(convId)
       break
     case 'error':
       if (assistant?.role === 'assistant') {
@@ -793,20 +803,56 @@ async function stop() {
 }
 
 async function saveWebSearch(value: boolean) {
-  if (config.value) config.value.preference.web_search = value
+  webSearch.value = value
+  const conv = activeConversation.value
+  if (!conv) return
   try {
-    await chatAPI.updatePreference({ web_search: value })
-  } catch {
-    // the next send stores it as well
+    replaceConversation(await chatAPI.updateConversation(conv.id, { web_search: value }))
+  } catch (e) {
+    appStore.showError(errorText(e))
   }
 }
+
+/** Mark the open conversation read once its reply is on screen. */
+async function markRead(convId: number) {
+  const conv = conversations.value.find((c) => c.id === convId)
+  if (conv) conv.unread = false
+  try {
+    await chatAPI.markRead(convId)
+  } catch {
+    // shown as read locally; the server keeps it unread until the next visit
+  }
+  void refreshUnread()
+}
+
+async function markUnread(conv: ChatConversation) {
+  try {
+    await chatAPI.markRead(conv.id, true)
+    conv.unread = true
+    void refreshUnread()
+  } catch (e) {
+    appStore.showError(errorText(e))
+  }
+}
+
+/** Pick up unread flags for replies that finished in other conversations. */
+async function reloadConversations() {
+  try {
+    const list = await chatAPI.listConversations()
+    const active = activeId.value
+    conversations.value = list.map((c) => (c.id === active ? { ...c, unread: false } : c))
+  } catch {
+    // keep the current list
+  }
+}
+
+watch(unreadCount, () => void reloadConversations())
 
 onMounted(async () => {
   try {
     const [cfg, list] = await Promise.all([chatAPI.getConfig(), chatAPI.listConversations()])
     config.value = cfg
     conversations.value = list
-    webSearch.value = cfg.preference.web_search
     if (!cfg.enabled) pageError.value = t('chat.disabled')
     else if (!cfg.groups.length) pageError.value = t('chat.noGroups')
     applyConversation(null)

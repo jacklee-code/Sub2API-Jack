@@ -119,13 +119,15 @@ func (h *JackChatHandler) Config(c *gin.Context) {
 		"preference":        pref,
 		"reasoning_efforts": jackchat.ReasoningEfforts,
 		"image_aspects":     jackchat.ImageAspects,
+		"image_sizes":       jackchat.ImageSizes(),
 		"max_image_count":   jackchat.MaxImageCount,
 		"storage_available": storageOK,
 		"limits": gin.H{
-			"max_image_bytes": settings.MaxImageBytes,
-			"max_pdf_bytes":   settings.MaxPDFBytes,
-			"max_text_bytes":  settings.MaxTextBytes,
-			"max_attachments": settings.MaxAttachments,
+			"max_image_bytes":    settings.MaxImageBytes,
+			"max_pdf_bytes":      settings.MaxPDFBytes,
+			"max_text_bytes":     settings.MaxTextBytes,
+			"max_attachments":    settings.MaxAttachments,
+			"max_context_tokens": settings.MaxContextTokens,
 		},
 	})
 }
@@ -208,6 +210,7 @@ type conversationPatch struct {
 	ReasoningEffort *string `json:"reasoning_effort"`
 	ImageAspect     *string `json:"image_aspect"`
 	ImageCount      *int    `json:"image_count"`
+	WebSearch       *bool   `json:"web_search"`
 }
 
 // apply validates the patch onto conv and the user's preference.
@@ -258,6 +261,9 @@ func (p conversationPatch) apply(conv *jackchat.Conversation, pref *jackchat.Pre
 		conv.ImageCount = *p.ImageCount
 		pref.ImageCount = *p.ImageCount
 	}
+	if p.WebSearch != nil {
+		conv.WebSearch = *p.WebSearch
+	}
 	if conv.Model != "" && jackchat.IsImageModel(conv.Model) != (conv.Mode == jackchat.ModeImage) {
 		// Switching mode keeps the other mode's model out of this conversation.
 		conv.Model = ""
@@ -304,7 +310,7 @@ func (h *JackChatHandler) CreateConversation(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	conv := jackchat.Conversation{Mode: pref.Mode, GroupID: jackchat.DefaultGroup(groups, pref.GroupID), ReasoningEffort: pref.ReasoningEffort, ImageAspect: pref.ImageAspect, ImageCount: pref.ImageCount}
+	conv := jackchat.Conversation{Mode: pref.Mode, GroupID: jackchat.DefaultGroup(groups, pref.GroupID), ReasoningEffort: pref.ReasoningEffort, ImageAspect: pref.ImageAspect, ImageCount: pref.ImageCount, WebSearch: true}
 	if conv.Mode != jackchat.ModeImage {
 		conv.Mode = jackchat.ModeChat
 	}
@@ -384,10 +390,50 @@ func (h *JackChatHandler) UpdateConversation(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if patch.Title == nil || patch.Mode != nil || patch.GroupID != nil || patch.Model != nil || patch.ReasoningEffort != nil || patch.ImageAspect != nil || patch.ImageCount != nil {
+	if patch.Mode != nil || patch.GroupID != nil || patch.Model != nil || patch.ReasoningEffort != nil || patch.ImageAspect != nil || patch.ImageCount != nil {
 		_ = h.svc.Store.SavePreference(ctx, userID, pref)
 	}
 	response.Success(c, out)
+}
+
+// MarkRead marks a conversation read, or unread with {"unread": true}.
+// POST /api/v1/chat/conversations/:id/read
+func (h *JackChatHandler) MarkRead(c *gin.Context) {
+	userID, ok := chatUserID(c)
+	if !ok {
+		return
+	}
+	id, ok := chatParamID(c, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Unread bool `json:"unread"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil && !errors.Is(err, io.EOF) {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+	if err := h.svc.Store.MarkRead(c.Request.Context(), userID, id, in.Unread); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"unread": in.Unread})
+}
+
+// UnreadCount returns how many conversations have unread replies.
+// GET /api/v1/chat/unread
+func (h *JackChatHandler) UnreadCount(c *gin.Context) {
+	userID, ok := chatUserID(c)
+	if !ok {
+		return
+	}
+	n, err := h.svc.Store.UnreadCount(c.Request.Context(), userID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"count": n})
 }
 
 // DeleteConversation removes a conversation, its messages and files.
@@ -599,6 +645,7 @@ func (h *JackChatHandler) follow(c *gin.Context, run *jackchat.Run, snapshot boo
 			"pending_images": snap.PendingImages,
 			"image_errors":   snap.ImageErrors,
 			"aspect":         snap.Aspect,
+			"omitted":        snap.Omitted,
 		})
 	}
 	ticker := time.NewTicker(chatKeepalive)

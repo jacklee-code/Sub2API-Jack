@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -129,6 +130,9 @@ func (s *Service) BuildResponsesBody(ctx context.Context, conv Conversation, his
 	if webSearch {
 		body["tools"] = []map[string]any{{"type": "web_search"}}
 	}
+	// One cache key per conversation keeps its turns on the same upstream account
+	// and prompt cache.
+	body["prompt_cache_key"] = fmt.Sprintf("jackchat:%d", conv.ID)
 	return json.Marshal(body)
 }
 
@@ -174,7 +178,15 @@ func (s *Service) SendChat(ctx context.Context, client Client, userID int64, con
 	if err != nil {
 		return err
 	}
-	body, err := s.BuildResponsesBody(ctx, conv, history, settings, in.WebSearch)
+	budget := settings.MaxContextTokens
+	if budget <= 0 {
+		budget = DefaultContextTokens
+	}
+	kept, newStart, omitted := selectContext(history, conv.ContextStartID, budget)
+	if newStart != nil {
+		_ = s.Store.SetContextStart(ctx, conv.ID, *newStart)
+	}
+	body, err := s.BuildResponsesBody(ctx, conv, kept, settings, in.WebSearch)
 	if err != nil {
 		return err
 	}
@@ -182,7 +194,7 @@ func (s *Service) SendChat(ctx context.Context, client Client, userID int64, con
 	if err != nil {
 		return err
 	}
-	emit(map[string]any{"type": "start", "conversation": conv, "user_message": user, "assistant_message": reply, "regenerate": in.Regenerate})
+	emit(map[string]any{"type": "start", "conversation": conv, "user_message": user, "assistant_message": reply, "regenerate": in.Regenerate, "omitted": omitted})
 
 	var text, reasoning strings.Builder
 	parser := &responsesParser{}
@@ -243,9 +255,9 @@ func (s *Service) SendChat(ctx context.Context, client Client, userID int64, con
 	case dispatchErr != nil:
 		reply.Status, reply.Error = StatusError, dispatchErr.Error()
 	case w.statusCode() >= 300:
-		reply.Status, reply.Error = StatusError, gatewayError(w.statusCode(), w.body.Bytes())
+		reply.Status, reply.Error = StatusError, friendlyError(gatewayError(w.statusCode(), w.body.Bytes()))
 	case streamErr != "":
-		reply.Status, reply.Error = StatusError, streamErr
+		reply.Status, reply.Error = StatusError, friendlyError(streamErr)
 	case !done:
 		reply.Status, reply.Error = StatusError, "the stream ended before the reply finished"
 	default:
@@ -261,10 +273,22 @@ func (s *Service) finishReply(conversationID int64, reply Message, emit Emit) er
 	if err := s.Store.FinishMessage(saveCtx, reply); err != nil {
 		return err
 	}
-	_ = s.Store.TouchConversation(saveCtx, conversationID)
+	_ = s.Store.MarkReplied(saveCtx, conversationID)
 	if reply.Attachments == nil {
 		reply.Attachments = []Attachment{}
 	}
 	emit(map[string]any{"type": "done", "message": reply})
 	return nil
+}
+
+// friendlyError replaces an upstream context-length rejection with a code the
+// page turns into a localised hint.
+func friendlyError(msg string) string {
+	lower := strings.ToLower(msg)
+	for _, marker := range []string{"context_length_exceeded", "maximum context length", "context window", "too many tokens", "input is too long", "prompt is too long"} {
+		if strings.Contains(lower, marker) {
+			return ContextFullError
+		}
+	}
+	return msg
 }

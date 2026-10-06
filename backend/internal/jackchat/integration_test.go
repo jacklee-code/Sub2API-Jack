@@ -147,3 +147,60 @@ func TestChatStoreKeysAndOwnership(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, got[0], bobKey)
 }
+
+func TestChatUnreadWebSearchAndContextStart(t *testing.T) {
+	ctx := context.Background()
+	pg, err := tcpostgres.Run(ctx, "postgres:18-alpine", tcpostgres.WithDatabase("chat_unread"), tcpostgres.WithUsername("postgres"), tcpostgres.WithPassword("test-only"), tcpostgres.BasicWaitStrategies())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, err := pg.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, repository.ApplyMigrations(ctx, db))
+	require.NoError(t, jackmigrations.Apply(ctx, db))
+
+	var user, other int64
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO users(email,password_hash,role,status) VALUES('u@example.test','test','user','active') RETURNING id`).Scan(&user))
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO users(email,password_hash,role,status) VALUES('o@example.test','test','user','active') RETURNING id`).Scan(&other))
+	store := jackchat.NewStore(db)
+
+	settings, err := store.Settings(ctx)
+	require.NoError(t, err)
+	require.Equal(t, jackchat.DefaultContextTokens, settings.MaxContextTokens)
+
+	conv, err := store.CreateConversation(ctx, user, jackchat.Conversation{Mode: jackchat.ModeChat, ImageAspect: "1:1", ImageCount: 1, WebSearch: true}, 0)
+	require.NoError(t, err)
+	require.True(t, conv.WebSearch)
+	require.False(t, conv.Unread, "a new conversation has nothing unread")
+
+	require.NoError(t, store.MarkReplied(ctx, conv.ID))
+	n, err := store.UnreadCount(ctx, user)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	got, err := store.Conversation(ctx, user, conv.ID)
+	require.NoError(t, err)
+	require.True(t, got.Unread)
+
+	require.ErrorIs(t, store.MarkRead(ctx, other, conv.ID, false), jackchat.ErrNotFound, "other users cannot change it")
+	require.NoError(t, store.MarkRead(ctx, user, conv.ID, false))
+	got, err = store.Conversation(ctx, user, conv.ID)
+	require.NoError(t, err)
+	require.False(t, got.Unread)
+	require.NoError(t, store.MarkRead(ctx, user, conv.ID, true))
+	got, err = store.Conversation(ctx, user, conv.ID)
+	require.NoError(t, err)
+	require.True(t, got.Unread, "marked unread by hand")
+
+	got.WebSearch = false
+	got, err = store.UpdateConversation(ctx, user, got)
+	require.NoError(t, err)
+	require.False(t, got.WebSearch)
+
+	require.NoError(t, store.SetContextStart(ctx, conv.ID, 42))
+	got, err = store.Conversation(ctx, user, conv.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.ContextStartID)
+	require.Equal(t, int64(42), *got.ContextStartID)
+}

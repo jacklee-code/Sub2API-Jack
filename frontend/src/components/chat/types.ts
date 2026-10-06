@@ -7,6 +7,8 @@ export interface UiMessage extends ChatMessage {
   pendingImages?: number
   imageErrors?: { index: number; error: string }[]
   aspect?: string
+  /** Earlier messages left out to fit the model context. */
+  omitted?: number
 }
 
 /** A file in the composer, uploading or ready to send. */

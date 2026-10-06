@@ -35,6 +35,7 @@ export interface ChatConfig {
   preference: ChatPreference
   reasoning_efforts: string[]
   image_aspects: string[]
+  image_sizes?: Record<string, string>
   max_image_count: number
   storage_available: boolean
   limits: {
@@ -42,6 +43,7 @@ export interface ChatConfig {
     max_pdf_bytes: number
     max_text_bytes: number
     max_attachments: number
+    max_context_tokens: number
   }
 }
 
@@ -54,6 +56,8 @@ export interface ChatConversation {
   image_aspect: string
   image_count: number
   title: string
+  web_search: boolean
+  unread: boolean
   created_at: string
   updated_at: string
 }
@@ -94,11 +98,11 @@ export interface ChatMessage {
 }
 
 export type ConversationPatch = Partial<
-  Pick<ChatConversation, 'title' | 'mode' | 'group_id' | 'model' | 'reasoning_effort' | 'image_aspect' | 'image_count'>
+  Pick<ChatConversation, 'title' | 'mode' | 'group_id' | 'model' | 'reasoning_effort' | 'image_aspect' | 'image_count' | 'web_search'>
 >
 
 export type ChatStreamEvent =
-  | { type: 'start'; conversation: ChatConversation; user_message: ChatMessage; assistant_message: ChatMessage; regenerate: boolean; count?: number; aspect?: string }
+  | { type: 'start'; conversation: ChatConversation; user_message: ChatMessage; assistant_message: ChatMessage; regenerate: boolean; count?: number; aspect?: string; omitted?: number }
   | { type: 'delta'; text: string }
   | { type: 'reasoning'; text: string }
   | { type: 'search'; status: 'searching' | 'done'; query?: string }
@@ -107,7 +111,7 @@ export type ChatStreamEvent =
   | { type: 'image_error'; index: number; error: string }
   | { type: 'done'; message: ChatMessage }
   | { type: 'error'; message: string }
-  | { type: 'snapshot'; message: ChatMessage; searching: boolean; search_queries: string[]; pending_images: number; image_errors: { index: number; error: string }[]; aspect?: string }
+  | { type: 'snapshot'; message: ChatMessage; searching: boolean; search_queries: string[]; pending_images: number; image_errors: { index: number; error: string }[]; aspect?: string; omitted?: number }
 
 export async function getConfig(): Promise<ChatConfig> {
   return (await apiClient.get<ChatConfig>('/chat/config')).data
@@ -131,6 +135,16 @@ export async function createConversation(patch: ConversationPatch = {}): Promise
 
 export async function updateConversation(id: number, patch: ConversationPatch): Promise<ChatConversation> {
   return (await apiClient.patch<ChatConversation>(`/chat/conversations/${id}`, patch)).data
+}
+
+/** Mark a conversation read, or unread when unread is true. */
+export async function markRead(id: number, unread = false): Promise<void> {
+  await apiClient.post(`/chat/conversations/${id}/read`, { unread })
+}
+
+/** Number of conversations with replies the user has not seen. */
+export async function getUnreadCount(): Promise<number> {
+  return (await apiClient.get<{ count: number }>('/chat/unread')).data.count
 }
 
 export async function deleteConversation(id: number): Promise<void> {
@@ -299,6 +313,7 @@ export interface ChatAdminSettings {
   max_text_bytes: number
   max_attachments: number
   max_conversations: number
+  max_context_tokens: number
 }
 
 export async function getAdminSettings(): Promise<{ settings: ChatAdminSettings; storage_available: boolean }> {

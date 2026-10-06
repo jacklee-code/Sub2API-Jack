@@ -3,6 +3,7 @@ package jackchat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,7 @@ func TestBuildResponsesBodyUsesHistoryOptionsAndTools(t *testing.T) {
 	require.Equal(t, "Be brief.", got["instructions"])
 	require.Equal(t, map[string]any{"effort": "high", "summary": "auto"}, got["reasoning"])
 	require.Equal(t, []any{map[string]any{"type": "web_search"}}, got["tools"])
+	require.Equal(t, "jackchat:0", got["prompt_cache_key"], "one cache key per conversation")
 	input, ok := got["input"].([]any)
 	require.True(t, ok)
 	require.Len(t, input, 3, "error replies are not sent back to the model")
@@ -136,19 +138,75 @@ func TestDefaultGroupPrefersAvailableChoiceThenNewest(t *testing.T) {
 	require.Nil(t, DefaultGroup(nil, &pref))
 }
 
-func TestModelModesAndImageSizesStayInOneKTier(t *testing.T) {
+func TestModelModesAndImageSizesAreAcceptedUpstream(t *testing.T) {
 	require.True(t, IsImageModel("gpt-image-2"))
 	require.True(t, IsImageModel(" GPT-Image-1 "))
 	require.False(t, IsImageModel("gpt-5.2"))
 	for _, aspect := range ImageAspects {
 		size, ok := ImageSize(aspect)
 		require.True(t, ok, aspect)
-		tier, ok := service.ClassifyImageBillingTier(size)
-		require.True(t, ok)
-		require.Equal(t, service.ImageBillingSize1K, tier, aspect)
+		if aspect == "auto" {
+			require.Empty(t, size, "auto lets the model choose")
+			continue
+		}
+		var w, h int
+		_, err := fmt.Sscanf(size, "%dx%d", &w, &h)
+		require.NoError(t, err)
+		// gpt-image ignores sizes below about 655k pixels and falls back to auto.
+		require.GreaterOrEqual(t, w*h, 655360, aspect)
+		require.Zero(t, w%16, aspect)
+		require.Zero(t, h%16, aspect)
 	}
-	_, ok := ImageSize("21:9")
-	require.False(t, ok)
+	_, ok := ImageSize("16:9")
+	require.False(t, ok, "1024x576 was below the minimum and is no longer offered")
+}
+
+func TestSelectContextKeepsAStableStartAndTheLastTurn(t *testing.T) {
+	long := strings.Repeat("a", 4000) // about 1000 tokens
+	history := []Message{}
+	for i := 1; i <= 20; i++ {
+		role := RoleUser
+		if i%2 == 0 {
+			role = RoleAssistant
+		}
+		history = append(history, Message{ID: int64(i), Role: role, Content: long})
+	}
+
+	kept, start, omitted := selectContext(history, nil, 50000)
+	require.Len(t, kept, 20, "fits: everything is sent")
+	require.Nil(t, start)
+	require.Zero(t, omitted)
+
+	kept, start, omitted = selectContext(history, nil, 10000)
+	require.NotNil(t, start, "overflow moves the start")
+	require.Equal(t, RoleUser, kept[0].Role, "context starts on a user turn")
+	require.Equal(t, int64(20), kept[len(kept)-1].ID)
+	require.LessOrEqual(t, len(kept)*1004, 10000*7/10+1004)
+	require.Equal(t, 20-len(kept), omitted)
+
+	// The next turn reuses the saved start until it overflows again.
+	next := append(history, Message{ID: 21, Role: RoleUser, Content: "short"})
+	kept2, start2, omitted2 := selectContext(next, start, 10000)
+	require.Nil(t, start2, "no move while it still fits")
+	require.Equal(t, *start, kept2[0].ID)
+	require.Equal(t, omitted, omitted2)
+
+	// A single huge turn is still sent.
+	huge := []Message{{ID: 1, Role: RoleUser, Content: strings.Repeat("b", 400000)}}
+	kept, _, omitted = selectContext(huge, nil, 10000)
+	require.Len(t, kept, 1)
+	require.Zero(t, omitted)
+}
+
+func TestEstimateTokensAndFriendlyContextError(t *testing.T) {
+	require.Equal(t, 4+25, estimateTextTokens(strings.Repeat("x", 100)))
+	require.Equal(t, 4+10, estimateTextTokens("一二三四五六七八九十"))
+	m := Message{Content: "hi", Attachments: []Attachment{{Kind: KindImage}, {Kind: KindPDF, Size: 500000}}}
+	require.Equal(t, estimateTextTokens("hi")+1500+5000, estimateMessageTokens(m))
+
+	require.Equal(t, ContextFullError, friendlyError("This model's maximum context length is 400000 tokens"))
+	require.Equal(t, ContextFullError, friendlyError(`{"code":"context_length_exceeded"}`))
+	require.Equal(t, "quota exceeded", friendlyError("quota exceeded"))
 }
 
 func TestClassifyAttachments(t *testing.T) {

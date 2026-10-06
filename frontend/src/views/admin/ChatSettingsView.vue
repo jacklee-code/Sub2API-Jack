@@ -45,6 +45,11 @@
               <label class="input-label" for="chat-max-conversations">{{ t('chat.settings.maxConversations') }}</label>
               <input id="chat-max-conversations" v-model.number="form.max_conversations" type="number" min="1" class="input" />
             </div>
+            <div class="sm:col-span-2">
+              <label class="input-label" for="chat-max-context">{{ t('chat.settings.maxContextTokens') }}</label>
+              <input id="chat-max-context" v-model.number="form.max_context_tokens" type="number" min="8000" max="2000000" step="1000" class="input" />
+              <p class="input-hint">{{ t('chat.settings.maxContextTokensHint') }}</p>
+            </div>
           </div>
         </div>
 
