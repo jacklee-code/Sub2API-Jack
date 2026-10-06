@@ -58,19 +58,25 @@
             :attachment="att"
             :max-edge="imageEdge"
             :aspect="message.aspect"
+            actions
+            :can-reference="canReference"
             @open="emit('open', $event)"
+            @reference="emit('reference', $event)"
           />
           <div
             v-for="n in pendingCount"
             :key="`pending-${n}`"
-            class="flex items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 dark:border-dark-500 dark:bg-dark-800"
+            class="chat-shimmer relative flex items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-600 dark:bg-dark-800"
             :style="placeholderStyle"
           >
-            <span class="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-primary-500 dark:border-dark-500 dark:border-t-primary-400"></span>
+            <svg class="h-7 w-7 text-gray-300 dark:text-dark-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+            </svg>
           </div>
         </div>
-        <p v-if="streaming && pendingCount > 0" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          {{ t('chat.generating', { n: pendingCount }) }}
+        <p v-if="hasImages || (message.imageErrors && message.imageErrors.length)" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <template v-if="streaming && pendingCount > 0">{{ t('chat.generating', { n: pendingCount }) }}</template>
+          <template v-else>{{ imageCaption }}</template>
         </p>
         <ul v-if="message.imageErrors && message.imageErrors.length" class="mt-2 space-y-0.5 text-xs text-red-600 dark:text-red-400">
           <li v-for="e in message.imageErrors" :key="e.index">{{ t('chat.imageFailed', { n: e.index + 1 }) }}: {{ e.error }}</li>
@@ -95,7 +101,7 @@
 
         <div v-if="!streaming" class="mt-2 flex flex-wrap items-center gap-1 text-xs text-gray-400">
           <span v-if="message.status === 'aborted'" class="badge badge-warning mr-1">{{ t('chat.aborted') }}</span>
-          <span v-if="message.model" class="mr-2">{{ message.model }}<template v-if="message.input_tokens || message.output_tokens"> · {{ t('chat.tokens', { input: message.input_tokens, output: message.output_tokens }) }}</template></span>
+          <span v-if="message.model && !hasImages" class="mr-2">{{ message.model }}<template v-if="message.input_tokens || message.output_tokens"> · {{ t('chat.tokens', { input: message.input_tokens, output: message.output_tokens }) }}</template></span>
           <button v-if="message.content" type="button" class="rounded-md px-2 py-1 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-700 dark:hover:text-gray-200" @click="copy">
             {{ copied ? t('chat.copied') : t('chat.copy') }}
           </button>
@@ -119,8 +125,8 @@ import { fitBox } from './imageSize'
 import { handleCodeCopyClick, renderMarkdown } from './markdown'
 import type { UiMessage } from './types'
 
-const props = defineProps<{ message: UiMessage; canRegenerate?: boolean }>()
-const emit = defineEmits<{ regenerate: []; open: [attachment: ChatAttachment] }>()
+const props = defineProps<{ message: UiMessage; canRegenerate?: boolean; canReference?: boolean }>()
+const emit = defineEmits<{ regenerate: []; open: [attachment: ChatAttachment]; reference: [attachment: ChatAttachment] }>()
 const { t } = useI18n()
 
 const isUser = computed(() => props.message.role === 'user')
@@ -130,6 +136,10 @@ const pendingCount = computed(() => Math.max(0, props.message.pendingImages || 0
 const imageTotal = computed(() => props.message.attachments.length + pendingCount.value + (props.message.imageErrors?.length || 0))
 const hasImages = computed(() => props.message.attachments.length > 0 || pendingCount.value > 0)
 const imageEdge = computed(() => (imageTotal.value > 1 ? 200 : 320))
+const imageCaption = computed(() => {
+  const parts = [props.message.model, props.message.aspect, t('chat.countShort', { n: props.message.attachments.length })]
+  return parts.filter(Boolean).join(' · ')
+})
 const placeholderStyle = computed(() => {
   const box = fitBox(undefined, undefined, imageEdge.value, props.message.aspect)
   return { width: `${box.width}px`, aspectRatio: `${box.width} / ${box.height}`, maxWidth: '100%' }

@@ -79,11 +79,12 @@
         @click="emit('update:webSearch', !webSearch)"
       >
         <Icon :name="webSearch ? 'check' : 'globe'" size="sm" />
-        <span>{{ t('chat.webSearch') }}</span>
-        <span v-if="webSearch" class="rounded-full bg-white/20 px-1.5 text-xs">{{ t('chat.webSearchOn') }}</span>
+        <span class="hidden sm:inline">{{ t('chat.webSearch') }}</span>
+        <span v-if="webSearch" class="hidden rounded-full bg-white/20 px-1.5 text-xs sm:inline">{{ t('chat.webSearchOn') }}</span>
       </button>
 
-      <div class="ml-auto">
+      <div class="ml-auto flex min-w-0 items-center gap-2">
+        <slot name="controls" />
         <button
           v-if="busy"
           type="button"

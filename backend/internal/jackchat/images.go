@@ -44,7 +44,7 @@ type imageResult struct {
 
 // SendImages generates conv.ImageCount images, one gateway request each, so
 // every image is billed and logged like a separate API call.
-func (s *Service) SendImages(ctx context.Context, orig *http.Request, userID int64, conv Conversation, in ImageInput, emit Emit) error {
+func (s *Service) SendImages(ctx context.Context, client Client, userID int64, conv Conversation, in ImageInput, emit Emit) error {
 	settings, err := s.Store.Settings(ctx)
 	if err != nil {
 		return err
@@ -124,7 +124,7 @@ func (s *Service) SendImages(ctx context.Context, orig *http.Request, userID int
 				return
 			}
 			defer func() { <-sem }()
-			data, err := s.generateOne(ctx, orig, key, conv.Model, prompt, size, refs)
+			data, err := s.generateOne(ctx, client, key, conv.Model, prompt, size, refs)
 			if err != nil {
 				results <- imageResult{index: i, err: err.Error()}
 				return
@@ -153,7 +153,7 @@ func (s *Service) SendImages(ctx context.Context, orig *http.Request, userID int
 	case len(reply.Attachments) == count:
 		reply.Status = StatusComplete
 	case ctx.Err() != nil:
-		reply.Status = StatusAborted
+		reply.Status, reply.Error = runEndStatus(ctx)
 	case len(reply.Attachments) > 0:
 		reply.Status, reply.Error = StatusComplete, strings.Join(dedupe(errs), "; ")
 	default:
@@ -169,7 +169,7 @@ type refImage struct {
 	data []byte
 }
 
-func (s *Service) generateOne(ctx context.Context, orig *http.Request, key, model, prompt, size string, refs []refImage) ([]byte, error) {
+func (s *Service) generateOne(ctx context.Context, client Client, key, model, prompt, size string, refs []refImage) ([]byte, error) {
 	var body []byte
 	var contentType, path string
 	if len(refs) == 0 {
@@ -204,7 +204,7 @@ func (s *Service) generateOne(ctx context.Context, orig *http.Request, key, mode
 		body, contentType = buf.Bytes(), mw.FormDataContentType()
 	}
 	w := newCaptureWriter(maxGeneratedBytes, nil)
-	if err := s.dispatch(ctx, orig, key, http.MethodPost, path, contentType, body, w); err != nil {
+	if err := s.dispatch(ctx, client, key, http.MethodPost, path, contentType, body, w); err != nil {
 		return nil, err
 	}
 	raw := bytes.TrimSpace(w.body.Bytes())

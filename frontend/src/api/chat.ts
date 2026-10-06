@@ -107,6 +107,7 @@ export type ChatStreamEvent =
   | { type: 'image_error'; index: number; error: string }
   | { type: 'done'; message: ChatMessage }
   | { type: 'error'; message: string }
+  | { type: 'snapshot'; message: ChatMessage; searching: boolean; search_queries: string[]; pending_images: number; image_errors: { index: number; error: string }[]; aspect?: string }
 
 export async function getConfig(): Promise<ChatConfig> {
   return (await apiClient.get<ChatConfig>('/chat/config')).data
@@ -246,6 +247,27 @@ async function stream(path: string, body: unknown, onEvent: (event: ChatStreamEv
     throw new Error(await errorMessage(res))
   }
   await readEventStream(res, onEvent)
+}
+
+/**
+ * Reattach to a conversation's running reply. Resolves false when nothing is
+ * running on the server (the reply already finished or ran elsewhere).
+ */
+export async function resumeStream(conversationId: number, onEvent: (event: ChatStreamEvent) => void, signal?: AbortSignal): Promise<boolean> {
+  const res = await authedFetch(buildApiUrl(`/chat/conversations/${conversationId}/stream`), {
+    method: 'GET',
+    headers: { Accept: 'text/event-stream' },
+    signal,
+  })
+  if (!res.ok) throw new Error(await errorMessage(res))
+  if (!(res.headers.get('Content-Type') || '').includes('text/event-stream')) return false
+  await readEventStream(res, onEvent)
+  return true
+}
+
+/** Stop a conversation's running reply; the server saves it as stopped. */
+export async function stopRun(conversationId: number): Promise<void> {
+  await apiClient.post(`/chat/conversations/${conversationId}/stop`)
 }
 
 export interface SendMessageInput {

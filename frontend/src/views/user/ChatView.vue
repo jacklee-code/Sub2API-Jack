@@ -21,7 +21,7 @@
       <!-- Chat area -->
       <section :class="['min-w-0 flex-1 flex-col', listOpen ? 'hidden md:flex' : 'flex']">
         <!-- Toolbar -->
-        <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-dark-700">
+        <div class="flex items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-dark-700">
           <button
             type="button"
             class="rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-700 md:hidden"
@@ -51,35 +51,7 @@
             </button>
           </div>
 
-          <label class="sr-only" for="chat-group">{{ t('chat.group') }}</label>
-          <select id="chat-group" v-model.number="settings.group_id" class="input h-9 w-auto max-w-[11rem] !py-1 text-sm" :disabled="busy || !groups.length" @change="changeGroup">
-            <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
-          </select>
-
-          <label class="sr-only" for="chat-model">{{ t('chat.model') }}</label>
-          <select id="chat-model" v-model="settings.model" class="input h-9 w-auto max-w-[14rem] !py-1 text-sm" :disabled="busy || loadingModels || !models.length" data-testid="chat-model" @change="changeSetting({ model: settings.model })">
-            <option v-if="loadingModels" value="">{{ t('chat.loadingModels') }}</option>
-            <option v-else-if="!models.length" value="">{{ t('chat.noModels') }}</option>
-            <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
-          </select>
-
-          <template v-if="settings.mode === 'chat'">
-            <label class="sr-only" for="chat-effort">{{ t('chat.effort') }}</label>
-            <select id="chat-effort" v-model="settings.reasoning_effort" class="input h-9 w-auto !py-1 text-sm" :title="t('chat.effort')" :disabled="busy" @change="changeSetting({ reasoning_effort: settings.reasoning_effort })">
-              <option v-for="e in efforts" :key="e" :value="e">{{ t('chat.effort') }}: {{ effortLabel(e) }}</option>
-            </select>
-          </template>
-          <template v-else>
-            <label class="sr-only" for="chat-aspect">{{ t('chat.aspect') }}</label>
-            <select id="chat-aspect" v-model="settings.image_aspect" class="input h-9 w-auto !py-1 text-sm" :title="t('chat.aspect')" :disabled="busy" @change="changeSetting({ image_aspect: settings.image_aspect })">
-              <option v-for="a in aspects" :key="a" :value="a">{{ a }}</option>
-            </select>
-            <label class="sr-only" for="chat-count">{{ t('chat.count') }}</label>
-            <select id="chat-count" v-model.number="settings.image_count" class="input h-9 w-auto !py-1 text-sm" :title="t('chat.count')" :disabled="busy" @change="changeSetting({ image_count: settings.image_count })">
-              <option v-for="n in maxImageCount" :key="n" :value="n">{{ n }} × {{ t('chat.count') }}</option>
-            </select>
-            <span class="badge badge-gray">{{ t('chat.resolution') }}</span>
-          </template>
+          <span class="ml-1 min-w-0 flex-1 truncate text-sm text-gray-500 dark:text-gray-400">{{ activeConversation?.title || t('chat.untitled') }}</span>
         </div>
 
         <!-- Messages -->
@@ -91,6 +63,20 @@
           <div v-else-if="!messages.length && !loadingMessages" class="mx-auto flex h-full max-w-xl flex-col items-center justify-center text-center">
             <h2 class="font-display text-2xl text-gray-900 dark:text-white">{{ settings.mode === 'image' ? t('chat.welcomeImage') : t('chat.welcome') }}</h2>
             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ t('chat.welcomeHint') }}</p>
+            <div v-if="settings.mode === 'image'" class="mt-6 w-full">
+              <div class="mb-2 text-xs text-gray-400">{{ t('chat.imageExamples') }}</div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <button
+                  v-for="key in imageExamples"
+                  :key="key"
+                  type="button"
+                  class="rounded-xl border border-gray-200 px-3 py-2.5 text-left text-sm text-gray-600 transition-colors hover:border-primary-300 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:border-primary-700 dark:hover:bg-dark-800"
+                  @click="useExample(t(`chat.examples.${key}`))"
+                >
+                  {{ t(`chat.examples.${key}`) }}
+                </button>
+              </div>
+            </div>
           </div>
           <div v-else class="mx-auto max-w-3xl space-y-6">
             <ChatMessageItem
@@ -98,9 +84,12 @@
               :key="m.id"
               :message="m"
               :can-regenerate="!busy && i === messages.length - 1 && m.role === 'assistant'"
+              :can-reference="storageAvailable"
               @regenerate="regenerate"
               @open="lightbox = $event"
+              @reference="useAsReference"
             />
+            <p v-if="resuming" class="text-center text-xs text-gray-400">{{ t('chat.resuming') }}</p>
           </div>
         </div>
 
@@ -124,7 +113,30 @@
               @files="addFiles"
               @remove="removeDraftAttachment"
               @update:web-search="saveWebSearch"
-            />
+            >
+              <template #controls>
+                <ChatSettingsPopover
+                  :mode="settings.mode"
+                  :groups="groups"
+                  :group-id="settings.group_id"
+                  :models="models"
+                  :model="settings.model"
+                  :loading-models="loadingModels"
+                  :efforts="efforts"
+                  :effort="settings.reasoning_effort"
+                  :aspects="aspects"
+                  :aspect="settings.image_aspect"
+                  :count="settings.image_count"
+                  :max-count="maxImageCount"
+                  :disabled="!ready || busy"
+                  @update:group-id="pickGroup"
+                  @update:model="pickModel"
+                  @update:effort="pickEffort"
+                  @update:aspect="pickAspect"
+                  @update:count="pickCount"
+                />
+              </template>
+            </ChatComposer>
             <p v-if="ready && !storageAvailable && settings.mode === 'image'" class="mt-2 text-xs text-amber-600 dark:text-amber-400">{{ t('chat.storageMissing') }}</p>
           </div>
         </div>
@@ -155,6 +167,7 @@ import ChatComposer from '@/components/chat/ChatComposer.vue'
 import ChatConversationList from '@/components/chat/ChatConversationList.vue'
 import ChatLightbox from '@/components/chat/ChatLightbox.vue'
 import ChatMessageItem from '@/components/chat/ChatMessageItem.vue'
+import ChatSettingsPopover from '@/components/chat/ChatSettingsPopover.vue'
 import { attachmentUrl, releaseAttachmentUrls } from '@/components/chat/attachmentUrls'
 import type { DraftAttachment, UiMessage } from '@/components/chat/types'
 import * as chatAPI from '@/api/chat'
@@ -177,7 +190,12 @@ const lightbox = ref<ChatAttachment | null>(null)
 const draft = ref('')
 const draftAttachments = ref<DraftAttachment[]>([])
 const webSearch = ref(false)
-const busy = ref(false)
+// The conversation whose reply this page is following, if any.
+const streamingId = ref<number | null>(null)
+const busy = computed(() => streamingId.value !== null && streamingId.value === activeId.value)
+const resuming = ref(false)
+const imageExamples = ['cityscape', 'product', 'poster', 'icon']
+let pollTimer: number | null = null
 const models = ref<string[]>([])
 const loadingModels = ref(false)
 const scroller = ref<HTMLElement | null>(null)
@@ -232,8 +250,9 @@ function errorText(e: unknown): string {
   return String(e)
 }
 
-function effortLabel(e: string) {
-  return t(`chat.efforts.${e || 'default'}`)
+function useExample(text: string) {
+  draft.value = text
+  void nextTick(() => composer.value?.focus())
 }
 
 function applyConversation(conv: ChatConversation | null) {
@@ -311,15 +330,38 @@ async function changeSetting(patch: ConversationPatch) {
   }
 }
 
-async function changeGroup() {
-  await changeSetting({ group_id: settings.group_id })
+async function pickGroup(id: number) {
+  if (id === settings.group_id) return
+  settings.group_id = id
+  await changeSetting({ group_id: id })
   await loadModels()
 }
 
+function pickModel(model: string) {
+  settings.model = model
+  void changeSetting({ model })
+}
+
+function pickEffort(effort: string) {
+  settings.reasoning_effort = effort
+  void changeSetting({ reasoning_effort: effort })
+}
+
+function pickAspect(aspect: string) {
+  settings.image_aspect = aspect
+  void changeSetting({ image_aspect: aspect })
+}
+
+function pickCount(count: number) {
+  settings.image_count = count
+  void changeSetting({ image_count: count })
+}
+
 async function changeMode(mode: ChatMode) {
-  if (busy.value || mode === settings.mode) return
+  if (mode === settings.mode) return
   clearDraftAttachments()
   if (activeConversation.value && messages.value.length) {
+    detach()
     // A conversation keeps one mode; switching starts a new one.
     activeId.value = null
     messages.value = []
@@ -345,7 +387,8 @@ function bumpConversation(conv: ChatConversation) {
 
 async function selectConversation(conv: ChatConversation) {
   listOpen.value = false
-  if (busy.value || conv.id === activeId.value) return
+  if (conv.id === activeId.value) return
+  detach()
   clearDraftAttachments()
   activeId.value = conv.id
   applyConversation(conv)
@@ -358,6 +401,8 @@ async function selectConversation(conv: ChatConversation) {
     messages.value = list.map((m) => ({ ...m, aspect: conv.image_aspect }))
     stickToBottom = true
     await scrollToBottom()
+    const last = messages.value[messages.value.length - 1]
+    if (last?.role === 'assistant' && last.status === 'streaming') void attach(conv)
   } catch (e) {
     appStore.showError(errorText(e))
   } finally {
@@ -366,7 +411,7 @@ async function selectConversation(conv: ChatConversation) {
 }
 
 function startNew() {
-  if (busy.value) return
+  detach()
   listOpen.value = false
   activeId.value = null
   messages.value = []
@@ -504,7 +549,9 @@ async function ensureConversation(): Promise<ChatConversation> {
   return conv
 }
 
-function handleEvent(ev: ChatStreamEvent, tempUserId: number | null) {
+function handleEvent(ev: ChatStreamEvent, convId: number, tempUserId: number | null) {
+  // Events from a conversation the page has left are ignored; the server keeps them.
+  if (activeId.value !== convId) return
   const list = messages.value
   const assistant = list[list.length - 1]
   switch (ev.type) {
@@ -515,6 +562,22 @@ function handleEvent(ev: ChatStreamEvent, tempUserId: number | null) {
         if (i >= 0) list.splice(i, 1, { ...ev.user_message, aspect: ev.aspect })
       }
       list.push({ ...ev.assistant_message, attachments: [], citations: [], aspect: ev.aspect || settings.image_aspect, pendingImages: ev.count || 0, imageErrors: [] })
+      break
+    }
+    case 'snapshot': {
+      const live: UiMessage = {
+        ...ev.message,
+        attachments: ev.message.attachments || [],
+        citations: ev.message.citations || [],
+        searching: ev.searching,
+        searchQueries: ev.search_queries || [],
+        pendingImages: ev.pending_images,
+        imageErrors: ev.image_errors || [],
+        aspect: ev.aspect || settings.image_aspect,
+      }
+      const i = list.findIndex((m) => m.id === ev.message.id)
+      if (i >= 0) list.splice(i, 1, live)
+      else list.push(live)
       break
     }
     case 'delta':
@@ -574,6 +637,71 @@ function handleEvent(ev: ChatStreamEvent, tempUserId: number | null) {
   void scrollToBottom()
 }
 
+function isAbort(e: unknown) {
+  return (e as { name?: string })?.name === 'AbortError'
+}
+
+/** Stop following the current reply. The server keeps generating it. */
+function detach() {
+  abort?.abort()
+  abort = null
+  streamingId.value = null
+  resuming.value = false
+  if (pollTimer !== null) {
+    window.clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+/** Follow the reply of conv again after the page came back to it. */
+async function attach(conv: ChatConversation) {
+  detach()
+  const controller = new AbortController()
+  abort = controller
+  streamingId.value = conv.id
+  resuming.value = true
+  let active = false
+  try {
+    active = await chatAPI.resumeStream(
+      conv.id,
+      (ev) => {
+        resuming.value = false
+        handleEvent(ev, conv.id, null)
+      },
+      controller.signal
+    )
+  } catch (e) {
+    if (isAbort(e)) return
+  } finally {
+    if (abort === controller) {
+      abort = null
+      streamingId.value = null
+      resuming.value = false
+    }
+  }
+  // Not running in this process (e.g. another instance): watch the saved reply.
+  if (!active && activeId.value === conv.id) pollSaved(conv.id)
+}
+
+function pollSaved(convId: number) {
+  const last = messages.value[messages.value.length - 1]
+  if (last?.role !== 'assistant' || last.status !== 'streaming') return
+  pollTimer = window.setTimeout(async () => {
+    pollTimer = null
+    if (activeId.value !== convId) return
+    try {
+      const list = await chatAPI.listMessages(convId)
+      if (activeId.value !== convId) return
+      const conv = activeConversation.value
+      messages.value = list.map((m) => ({ ...m, aspect: conv?.image_aspect }))
+      void scrollToBottom()
+    } catch {
+      // try again on the next tick
+    }
+    pollSaved(convId)
+  }, 3000)
+}
+
 async function run(conv: ChatConversation, regenerate: boolean) {
   const text = draft.value.trim()
   const attachments = draftAttachments.value.filter((a) => a.attachment).map((a) => a.attachment as ChatAttachment)
@@ -597,47 +725,41 @@ async function run(conv: ChatConversation, regenerate: boolean) {
   }
   stickToBottom = true
   void scrollToBottom(true)
-  busy.value = true
-  abort = new AbortController()
+  detach()
+  const controller = new AbortController()
+  abort = controller
+  streamingId.value = conv.id
   let started = false
+  let finished = false
   const onEvent = (ev: ChatStreamEvent) => {
     if (ev.type === 'start') started = true
-    handleEvent(ev, tempUserId)
+    if (ev.type === 'done' || ev.type === 'error') finished = true
+    handleEvent(ev, conv.id, tempUserId)
   }
   try {
     const ids = attachments.map((a) => a.id)
     if (conv.mode === 'image') {
-      await chatAPI.sendImages(conv.id, { prompt: text, attachment_ids: ids, regenerate }, onEvent, abort.signal)
+      await chatAPI.sendImages(conv.id, { prompt: text, attachment_ids: ids, regenerate }, onEvent, controller.signal)
     } else {
-      await chatAPI.sendMessage(conv.id, { text, attachment_ids: ids, regenerate, web_search: webSearch.value }, onEvent, abort.signal)
+      await chatAPI.sendMessage(conv.id, { text, attachment_ids: ids, regenerate, web_search: webSearch.value }, onEvent, controller.signal)
     }
   } catch (e) {
-    const aborted = (e as { name?: string })?.name === 'AbortError'
-    const last = messages.value[messages.value.length - 1]
-    if (!started && !regenerate && !aborted) {
+    // Leaving the page detaches; the reply keeps generating on the server.
+    if (isAbort(e)) return
+    if (!started && !regenerate && activeId.value === conv.id) {
       // Nothing was stored; put the text back so it can be retried.
       messages.value = messages.value.filter((m) => m.id !== tempUserId)
       draft.value = text
-      appStore.showError(errorText(e))
-    } else if (last?.role === 'assistant' && last.status === 'streaming') {
-      last.status = aborted ? 'aborted' : 'error'
-      if (!aborted) last.error = errorText(e)
-      last.pendingImages = 0
-      last.searching = false
-    } else if (!aborted) {
-      appStore.showError(errorText(e))
     }
+    appStore.showError(errorText(e))
   } finally {
-    const last = messages.value[messages.value.length - 1]
-    if (last?.role === 'assistant' && last.status === 'streaming') {
-      // The stream closed without a final event.
-      last.status = 'error'
-      last.pendingImages = 0
-      last.searching = false
+    if (abort === controller) {
+      abort = null
+      streamingId.value = null
     }
-    busy.value = false
-    abort = null
   }
+  // The connection dropped mid-reply (network, proxy): pick the run up again.
+  if (started && !finished && activeId.value === conv.id && !controller.signal.aborted) void attach(conv)
 }
 
 async function send() {
@@ -658,8 +780,16 @@ async function regenerate() {
   await run(conv, true)
 }
 
-function stop() {
-  abort?.abort()
+/** Stop generating: the server saves the reply as stopped and sends it back. */
+async function stop() {
+  const id = streamingId.value
+  if (id === null) return
+  try {
+    await chatAPI.stopRun(id)
+  } catch (e) {
+    appStore.showError(errorText(e))
+    detach()
+  }
 }
 
 async function saveWebSearch(value: boolean) {
@@ -692,7 +822,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  abort?.abort()
+  // Only stop following; replies keep generating and can be resumed later.
+  detach()
   clearDraftAttachments()
   releaseAttachmentUrls()
 })
