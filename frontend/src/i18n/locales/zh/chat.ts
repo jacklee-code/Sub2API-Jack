@@ -38,6 +38,7 @@ export default {
     attachReference: '添加参考图',
     webSearch: '联网搜索',
     webSearchHint: '允许模型搜索网页',
+    webSearchOn: '已开启',
     searching: '正在搜索网页…',
     searched: '已搜索：{query}',
     searchedPlain: '已搜索网页',

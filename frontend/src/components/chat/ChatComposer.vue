@@ -69,16 +69,18 @@
       <button
         v-if="mode === 'chat'"
         type="button"
-        class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors"
+        class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors"
         :class="webSearch
-          ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-gray-100'"
+          ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:border-emerald-500 dark:bg-emerald-600 dark:hover:bg-emerald-500'
+          : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-100 hover:text-gray-800 dark:border-dark-600 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-gray-100'"
         :title="t('chat.webSearchHint')"
         :aria-pressed="webSearch"
+        data-testid="chat-web-search"
         @click="emit('update:webSearch', !webSearch)"
       >
-        <Icon name="globe" size="sm" />
+        <Icon :name="webSearch ? 'check' : 'globe'" size="sm" />
         <span>{{ t('chat.webSearch') }}</span>
+        <span v-if="webSearch" class="rounded-full bg-white/20 px-1.5 text-xs">{{ t('chat.webSearchOn') }}</span>
       </button>
 
       <div class="ml-auto">

@@ -145,6 +145,8 @@ export async function uploadAttachment(file: File, onProgress?: (fraction: numbe
   form.append('file', file)
   return (
     await apiClient.post<ChatAttachment>('/chat/attachments', form, {
+      // The client defaults to JSON; multipart lets axios add the boundary.
+      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 0,
       onUploadProgress: (e) => {
         if (onProgress && e.total) onProgress(e.loaded / e.total)
