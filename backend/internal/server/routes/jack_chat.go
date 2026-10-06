@@ -39,6 +39,8 @@ func registerJackChatRoutes(
 		chat.GET("/conversations/:id/messages", h.JackChat.Messages)
 		chat.POST("/conversations/:id/messages", h.JackChat.SendMessage)
 		chat.POST("/conversations/:id/images", h.JackChat.SendImages)
+		chat.GET("/conversations/:id/stream", h.JackChat.StreamRun)
+		chat.POST("/conversations/:id/stop", h.JackChat.StopRun)
 		chat.POST("/attachments", middleware.RequestBodyLimit(chatUploadBodyLimit), h.JackChat.UploadAttachment)
 		chat.DELETE("/attachments/:id", h.JackChat.DeleteAttachment)
 		chat.GET("/attachments/:id/content", h.JackChat.AttachmentContent)

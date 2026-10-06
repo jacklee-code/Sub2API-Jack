@@ -114,3 +114,28 @@
   content: '▍';
   @apply ml-0.5 animate-pulse text-gray-400;
 }
+
+.chat-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.45), transparent);
+  animation: chat-shimmer 1.6s infinite;
+}
+
+.dark .chat-shimmer::after {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
+}
+
+@keyframes chat-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-shimmer::after {
+    animation: none;
+  }
+}

@@ -36,7 +36,7 @@ func NewJackChatHandler(db *sql.DB, apiKeys *service.APIKeyService, keyRepo serv
 	h.cancel = cancel
 	go func() {
 		defer close(h.done)
-		ticker := time.NewTicker(time.Hour)
+		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
@@ -150,7 +150,7 @@ func (h *JackChatHandler) Models(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	models, err := h.svc.Models(c.Request.Context(), c.Request, userID, groupID, mode)
+	models, err := h.svc.Models(c.Request.Context(), jackchat.ClientFrom(c.Request), userID, groupID, mode)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -462,6 +462,16 @@ func (s *sseStream) emit(event map[string]any) {
 	s.c.Writer.Flush()
 }
 
+func (s *sseStream) ping() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started {
+		return
+	}
+	_, _ = fmt.Fprint(s.c.Writer, ": ping\n\n")
+	s.c.Writer.Flush()
+}
+
 func (s *sseStream) fail(err error) {
 	s.mu.Lock()
 	started := s.started
@@ -502,15 +512,19 @@ func (h *JackChatHandler) SendMessage(c *gin.Context) {
 		response.BadRequest(c, "Invalid request")
 		return
 	}
-	stream := &sseStream{c: c}
-	if err := h.svc.SendChat(c.Request.Context(), c.Request, userID, conv, in, stream.emit); err != nil {
-		stream.fail(err)
+	if pref, err := h.svc.Store.Preference(c.Request.Context(), userID); err == nil && pref.WebSearch != in.WebSearch {
+		pref.WebSearch = in.WebSearch
+		_ = h.svc.Store.SavePreference(c.Request.Context(), userID, pref)
+	}
+	client := jackchat.ClientFrom(c.Request)
+	run, err := h.svc.Runs.Start(userID, conv.ID, func(ctx context.Context, emit jackchat.Emit) error {
+		return h.svc.SendChat(ctx, client, userID, conv, in, emit)
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
-	if pref, err := h.svc.Store.Preference(context.WithoutCancel(c.Request.Context()), userID); err == nil && pref.WebSearch != in.WebSearch {
-		pref.WebSearch = in.WebSearch
-		_ = h.svc.Store.SavePreference(context.WithoutCancel(c.Request.Context()), userID, pref)
-	}
+	h.follow(c, run, false)
 }
 
 // SendImages streams one image-generation turn.
@@ -525,9 +539,90 @@ func (h *JackChatHandler) SendImages(c *gin.Context) {
 		response.BadRequest(c, "Invalid request")
 		return
 	}
+	client := jackchat.ClientFrom(c.Request)
+	run, err := h.svc.Runs.Start(userID, conv.ID, func(ctx context.Context, emit jackchat.Emit) error {
+		return h.svc.SendImages(ctx, client, userID, conv, in, emit)
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	h.follow(c, run, false)
+}
+
+// StreamRun reattaches to a conversation's running reply: a snapshot of the
+// reply so far, then live events. Without a run it answers {"active": false}.
+// GET /api/v1/chat/conversations/:id/stream
+func (h *JackChatHandler) StreamRun(c *gin.Context) {
+	userID, conv, ok := h.conversationFor(c)
+	if !ok {
+		return
+	}
+	run := h.svc.Runs.Get(userID, conv.ID)
+	if run == nil {
+		response.Success(c, gin.H{"active": false})
+		return
+	}
+	h.follow(c, run, true)
+}
+
+// StopRun stops a conversation's running reply; it is saved as stopped.
+// POST /api/v1/chat/conversations/:id/stop
+func (h *JackChatHandler) StopRun(c *gin.Context) {
+	userID, conv, ok := h.conversationFor(c)
+	if !ok {
+		return
+	}
+	run := h.svc.Runs.Get(userID, conv.ID)
+	if run != nil {
+		run.Cancel()
+	}
+	response.Success(c, gin.H{"stopped": run != nil})
+}
+
+// chatKeepalive keeps proxies from closing a quiet stream, for example while
+// an image is generating.
+const chatKeepalive = 15 * time.Second
+
+// follow streams a run until it ends or the browser leaves. Leaving only
+// detaches; the run keeps going and can be reattached with StreamRun.
+func (h *JackChatHandler) follow(c *gin.Context, run *jackchat.Run, snapshot bool) {
 	stream := &sseStream{c: c}
-	if err := h.svc.SendImages(c.Request.Context(), c.Request, userID, conv, in, stream.emit); err != nil {
-		stream.fail(err)
+	snap, events, detach := run.Subscribe()
+	defer detach()
+	if snapshot && snap != nil {
+		stream.emit(map[string]any{
+			"type":           "snapshot",
+			"message":        snap.Message,
+			"searching":      snap.Searching,
+			"search_queries": snap.SearchQueries,
+			"pending_images": snap.PendingImages,
+			"image_errors":   snap.ImageErrors,
+			"aspect":         snap.Aspect,
+		})
+	}
+	ticker := time.NewTicker(chatKeepalive)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-ticker.C:
+			stream.ping()
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if ev["type"] == "fail" {
+				err, _ := ev["error"].(error)
+				stream.fail(err)
+				return
+			}
+			stream.emit(ev)
+			if ev["type"] == "done" || ev["type"] == "error" {
+				return
+			}
+		}
 	}
 }
 

@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   uploadAttachment: vi.fn(),
   deleteAttachment: vi.fn(),
   fetchAttachmentBlob: vi.fn(),
+  resumeStream: vi.fn(),
+  stopRun: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
 }))
@@ -86,9 +88,8 @@ describe('Chat mode', () => {
     const wrapper = render()
     await flushPromises()
 
-    expect((wrapper.get('#chat-group').element as HTMLSelectElement).value).toBe('2')
+    expect(wrapper.get('[data-testid="chat-settings"]').text()).toContain('gpt-5')
     expect(mocks.getModels).toHaveBeenCalledWith(2, 'chat')
-    expect((wrapper.get('#chat-model').element as HTMLSelectElement).value).toBe('gpt-5')
 
     await wrapper.get('button[aria-pressed="false"]').trigger('click')
     await wrapper.get('textarea').setValue('Hello there')
@@ -172,11 +173,12 @@ describe('Chat mode', () => {
     await wrapper.get('[data-testid="chat-mode-image"]').trigger('click')
     await flushPromises()
     expect(mocks.getModels).toHaveBeenLastCalledWith(2, 'image')
-    expect(wrapper.find('#chat-effort').exists()).toBe(false)
-    expect(wrapper.text()).toContain('chat.resolution')
+    await wrapper.get('[data-testid="chat-settings"]').trigger('click')
+    expect(wrapper.find('[data-testid="chat-effort-range"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('chat.resolutionHint')
 
-    await wrapper.get('#chat-aspect').setValue('16:9')
-    await wrapper.get('#chat-count').setValue(2)
+    await wrapper.get('[data-testid="chat-aspect-16:9"]').trigger('click')
+    await wrapper.get('[data-testid="chat-count-2"]').trigger('click')
     await wrapper.get('textarea').setValue('a cat')
     await wrapper.get('button[aria-label="chat.send"]').trigger('click')
     await flushPromises()
@@ -185,8 +187,9 @@ describe('Chat mode', () => {
     expect(mocks.sendImages).toHaveBeenCalledWith(5, expect.objectContaining({ prompt: 'a cat' }), expect.any(Function), expect.any(AbortSignal))
     const thumb = wrapper.get('button[title="image-1.png"]')
     // Two images in one reply share a 200px longest edge, keeping 16:9.
-    expect(thumb.attributes('style')).toContain('width: 200px')
-    expect(thumb.attributes('style')).toContain('aspect-ratio: 200 / 113')
+    const box = thumb.element.parentElement!.getAttribute('style') || ''
+    expect(box).toContain('width: 200px')
+    expect(box).toContain('aspect-ratio: 200 / 113')
     expect(wrapper.text()).toContain('chat.imageFailed')
 
     await thumb.trigger('click')
@@ -196,6 +199,73 @@ describe('Chat mode', () => {
     await flushPromises()
     expect(wrapper.find('img[src="blob:test"]').exists()).toBe(true)
     URL.createObjectURL = created
+    wrapper.unmount()
+  })
+
+  it('resumes a reply that kept generating while the page was away', async () => {
+    const streaming = message({ id: 2, role: 'assistant', content: 'Hel', status: 'streaming', model: 'gpt-5' })
+    mocks.listConversations.mockResolvedValue([conversation({ title: 'Running' })])
+    mocks.listMessages.mockResolvedValue([message(), streaming])
+    mocks.resumeStream.mockImplementation(async (_id: number, onEvent: (e: ChatStreamEvent) => void) => {
+      onEvent({ type: 'snapshot', message: { ...streaming, content: 'Hello wor' } as never, searching: false, search_queries: [], pending_images: 0, image_errors: [] })
+      onEvent({ type: 'delta', text: 'ld' })
+      onEvent({ type: 'done', message: { ...streaming, content: 'Hello world', status: 'complete' } as never })
+      return true
+    })
+    const wrapper = render()
+    await flushPromises()
+    expect(mocks.resumeStream).toHaveBeenCalledWith(5, expect.any(Function), expect.any(AbortSignal))
+    expect(wrapper.text()).toContain('Hello world')
+    expect(wrapper.text()).not.toContain('Hello worldld')
+    expect(mocks.stopRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('leaving the page only detaches; the stop button stops the run', async () => {
+    mocks.createConversation.mockResolvedValue(conversation())
+    let signal: AbortSignal | undefined
+    mocks.sendMessage.mockImplementation((_id: number, _input: unknown, onEvent: (e: ChatStreamEvent) => void, s: AbortSignal) => {
+      signal = s
+      onEvent({ type: 'start', conversation: conversation() as never, user_message: message({ id: 10 }) as never, assistant_message: message({ id: 11, role: 'assistant', content: '', status: 'streaming' }) as never, regenerate: false })
+      return new Promise((_resolve, reject) => s.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    })
+    mocks.stopRun.mockResolvedValue(undefined)
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.get('textarea').setValue('long task')
+    await wrapper.get('button[aria-label="chat.send"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="chat.stop"]').trigger('click')
+    await flushPromises()
+    expect(mocks.stopRun).toHaveBeenCalledWith(5)
+
+    wrapper.unmount()
+    expect(signal?.aborted).toBe(true)
+    expect(mocks.stopRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('changes model, effort and group from the composer pill', async () => {
+    mocks.listConversations.mockResolvedValue([conversation()])
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.get('[data-testid="chat-settings"]').trigger('click')
+    const range = wrapper.get('[data-testid="chat-effort-range"]')
+    await range.setValue('2')
+    await flushPromises()
+    expect(mocks.updateConversation).toHaveBeenCalledWith(5, { reasoning_effort: 'high' })
+    expect(wrapper.get('[data-testid="chat-effort-label"]').text()).toBe('chat.efforts.high')
+
+    await wrapper.get('[data-testid="chat-open-models"]').trigger('click')
+    await wrapper.get('[data-testid="chat-model-gpt-5-mini"]').trigger('click')
+    await flushPromises()
+    expect(mocks.updateConversation).toHaveBeenCalledWith(5, { model: 'gpt-5-mini' })
+
+    await wrapper.get('[data-testid="chat-open-models"]').trigger('click')
+    await wrapper.get('[data-testid="chat-group-1"]').trigger('click')
+    await flushPromises()
+    expect(mocks.updateConversation).toHaveBeenCalledWith(5, { group_id: 1 })
+    expect(mocks.getModels).toHaveBeenCalledWith(1, 'chat')
     wrapper.unmount()
   })
 
