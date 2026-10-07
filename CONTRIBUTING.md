@@ -85,7 +85,13 @@ Release，透過 [sync-upstream.py](scripts/jack/sync-upstream.py) 建立 merge 
 唯讀檢查可使用 `python3 scripts/jack/sync-upstream.py --dry-run`。
 `.jack/upstream.json` 必須記錄實際已合併的官方 tag／commit，不能只改版本號。
 
+若唯一衝突是 `frontend/pnpm-lock.yaml`，排程保留 Jack 版本並以
+`pnpm install --lockfile-only` 依合併後的 `package.json` 重建，再照常驗證；
+過期的 lockfile 會在 `--frozen-lockfile` 安裝時失敗，不會被合併。
+
 衝突或測試失敗時，現有 PR 會保留等待修復；排程不會自動解決語意衝突。
+新的 sync PR 會指派給 `jacklee-code`；衝突時該次 workflow 會失敗以觸發 GitHub
+通知，之後每次排程在草稿仍未修復時留下 warning。沒有 warning 的綠色同步執行代表沒有待處理衝突。
 在原 sync 分支讀取 `.jack/upstream-conflict.md`（如有），merge 記錄的上游 commit，
 保留 Jack 功能，更新 `.jack/upstream.json`，移除已解決的衝突標記，推送並重新驗證。
 因排程會保留既有 PR，修復後由 owner／已授權 agent 完成合併。
