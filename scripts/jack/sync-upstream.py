@@ -11,6 +11,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 UPSTREAM = 'Wei-Shaw/sub2api'
 REPO = 'jacklee-code/Sub2API-Jack'
+OWNER = 'jacklee-code'
+# Generated files: keep Jack's copy and regenerate it from the merged manifests.
+# Jack checks install with --frozen-lockfile, so a stale result fails before merge.
+REGENERATED = {'frontend/pnpm-lock.yaml': ('pnpm', '--dir', 'frontend', 'install', '--lockfile-only')}
 
 def run(*args, check=True):
     return subprocess.run(args, cwd=ROOT, text=True, capture_output=True, check=check)
@@ -20,6 +24,17 @@ def output(**values):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             for key, value in values.items(): f.write(f'{key}={value}\n')
     print(json.dumps(values))
+
+def resolve_generated(conflicts):
+    """Resolve a merge whose only conflicts are generated files; return success."""
+    if not conflicts or any(path not in REGENERATED for path in conflicts): return False
+    for path in conflicts:
+        run('git', 'checkout', '--ours', '--', path)
+        regenerate = run(*REGENERATED[path], check=False)
+        if regenerate.returncode != 0:
+            print(regenerate.stdout, regenerate.stderr); return False
+        run('git', 'add', '--', path)
+    return not run('git', 'diff', '--name-only', '--diff-filter=U').stdout.strip()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -47,17 +62,20 @@ def main():
         pr = existing[0]
         # An open failed/conflicting PR is for a human/agent to repair. Do not
         # repeatedly replace it, erase repairs, or publish an unreviewed base.
-        output(ready='false', reason='existing_pr', pr=pr['number']); return
+        output(ready='false', reason='existing_pr', pr=pr['number'], blocked=str(pr['isDraft']).lower()); return
     run('git', 'switch', '-c', branch, 'origin/main')
     merge = run('git', 'merge', '--no-ff', '--no-edit', commit, check=False)
     blocked = merge.returncode != 0
     if blocked:
         conflicts = run('git', 'diff', '--name-only', '--diff-filter=U').stdout
+        blocked = not resolve_generated(conflicts.split())
+    if blocked:
         run('git', 'merge', '--abort')
         (ROOT / '.jack/upstream-conflict.md').write_text(f'# Upstream {tag} needs manual integration\n\nTarget commit: `{commit}`\n\nConflicting paths:\n\n```\n{conflicts}```\n\nMerge the target, remove this file, update upstream.json and rerun Jack checks.\n')
         run('git', 'add', '.jack/upstream-conflict.md')
         run('git', 'commit', '-m', f'chore: record blocked upstream {tag} integration')
     else:
+        if merge.returncode != 0: run('git', 'commit', '--no-edit')
         (ROOT / '.jack/upstream.json').write_text(json.dumps({'tag': tag, 'commit': commit}, indent=2) + '\n')
         run('git', 'add', '.jack/upstream.json')
         run('git', 'commit', '-m', f'chore: track upstream {tag}')
@@ -66,9 +84,9 @@ def main():
     body += 'Blocked by merge conflicts; this draft must not be merged until the integration is repaired.' if blocked else 'Jack checks must pass before automatic merge and publication. Production deployment remains manual.'
     with tempfile.NamedTemporaryFile('w', suffix='.md') as f:
         f.write(body); f.flush()
-        command = ['gh', 'pr', 'create', '--repo', REPO, '--base', 'main', '--head', branch, '--title', f'chore: integrate upstream {tag}', '--body-file', f.name]
+        command = ['gh', 'pr', 'create', '--repo', REPO, '--base', 'main', '--head', branch, '--title', f'chore: integrate upstream {tag}', '--body-file', f.name, '--assignee', OWNER]
         if blocked: command.append('--draft')
         url = run(*command).stdout.strip()
-    output(ready=str(not blocked).lower(), sha=run('git', 'rev-parse', 'HEAD').stdout.strip(), pr=url, tag=tag)
+    output(ready=str(not blocked).lower(), blocked=str(blocked).lower(), sha=run('git', 'rev-parse', 'HEAD').stdout.strip(), pr=url, tag=tag)
 
 if __name__ == '__main__': main()

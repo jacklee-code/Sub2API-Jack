@@ -13,7 +13,7 @@ sync = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync)
 
 class SyncTest(unittest.TestCase):
-    def fixture(self, tmp, conflict=False):
+    def fixture(self, tmp, conflict=False, path='base.txt'):
         root = Path(tmp)
         origin = root / 'origin.git'; upstream = root / 'upstream.git'; work = root / 'work'; author = root / 'author'
         def git(cwd, *args):
@@ -21,15 +21,15 @@ class SyncTest(unittest.TestCase):
         git(root, 'init', '--bare', str(origin)); git(root, 'init', '--bare', str(upstream))
         git(root, 'init', '-b', 'main', str(author))
         git(author, 'config', 'user.name', 'Fixture'); git(author, 'config', 'user.email', 'fixture@example.test')
-        (author/'base.txt').write_text('original\n'); git(author, 'add', '.'); git(author, 'commit', '-m', 'base')
+        (author/path).parent.mkdir(exist_ok=True); (author/path).write_text('original\n'); git(author, 'add', '.'); git(author, 'commit', '-m', 'base')
         base = git(author, 'rev-parse', 'HEAD'); git(author, 'remote', 'add', 'upstream', str(upstream)); git(author, 'push', 'upstream', 'main')
         git(root, 'clone', '-b', 'main', str(upstream), str(work)); git(work, 'remote', 'set-url', 'origin', str(origin))
         git(work, 'config', 'user.name', 'Fixture'); git(work, 'config', 'user.email', 'fixture@example.test')
         (work/'.jack').mkdir(); (work/'.jack/upstream.json').write_text(json.dumps({'tag':'v0.2.13','commit':base}))
         (work/'custom.txt').write_text('keep custom fleet feature\n')
-        if conflict: (work/'base.txt').write_text('downstream edits\n')
+        if conflict: (work/path).write_text('downstream edits\n')
         git(work, 'add', '.'); git(work, 'commit', '-m', 'downstream feature'); git(work, 'push', '-u', 'origin', 'main')
-        (author/('base.txt' if conflict else 'official.txt')).write_text('official release update\n')
+        (author/(path if conflict else 'official.txt')).write_text('official release update\n')
         git(author, 'add', '.'); git(author, 'commit', '-m', 'official update'); git(author, 'tag', 'v0.2.14'); git(author, 'push', 'upstream', 'main', '--tags')
         target = git(author, 'rev-parse', 'HEAD')
         return work, upstream, target, git
@@ -40,12 +40,20 @@ class SyncTest(unittest.TestCase):
     def test_conflict_opens_draft_without_replacing_custom_code(self):
         self.run_case(True)
 
-    def run_case(self, conflict):
+    def test_lockfile_only_conflict_is_regenerated_and_ready(self):
+        self.run_case(True, 'frontend/pnpm-lock.yaml')
+
+    def run_case(self, conflict, path='base.txt'):
+        lockfile = path in sync.REGENERATED
         with tempfile.TemporaryDirectory() as tmp:
-            work, upstream, target, git = self.fixture(tmp, conflict)
+            work, upstream, target, git = self.fixture(tmp, conflict, path)
             commands = []
             def command(*args, check=True):
                 commands.append(args)
+                if args[0] == 'pnpm':
+                    self.assertEqual((work/path).read_text(), 'downstream edits\n')
+                    (work/path).write_text('regenerated\n')
+                    return subprocess.CompletedProcess(args, 0, '', '')
                 if args[0] == 'gh':
                     if args[1] == 'api': out = json.dumps({'tag_name':'v0.2.14','draft':False,'prerelease':False,'html_url':'https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.14'})
                     elif args[1:3] == ('pr','list'): out = '[]'
@@ -59,10 +67,18 @@ class SyncTest(unittest.TestCase):
             self.assertEqual((work/'custom.txt').read_text(), 'keep custom fleet feature\n')
             creates = [c for c in commands if c[:3] == ('gh','pr','create')]
             self.assertEqual(len(creates), 1)
-            if conflict:
+            self.assertIn('jacklee-code', creates[0])
+            if lockfile:
+                self.assertNotIn('--draft', creates[0]); self.assertFalse((work/'.jack/upstream-conflict.md').exists())
+                self.assertEqual((work/path).read_text(), 'regenerated\n')
+                git(work, 'merge-base', '--is-ancestor', target, 'HEAD')
+                self.assertEqual(json.loads((work/'.jack/upstream.json').read_text())['commit'], target)
+                self.assertIn('ready=true', (Path(tmp)/'output').read_text())
+            elif conflict:
                 self.assertIn('--draft', creates[0]); self.assertTrue((work/'.jack/upstream-conflict.md').exists())
                 self.assertEqual((work/'base.txt').read_text(), 'downstream edits\n')
                 self.assertIn('ready=false', (Path(tmp)/'output').read_text())
+                self.assertIn('blocked=true', (Path(tmp)/'output').read_text())
             else:
                 self.assertEqual((work/'official.txt').read_text(), 'official release update\n')
                 self.assertEqual(json.loads((work/'.jack/upstream.json').read_text())['commit'], target)

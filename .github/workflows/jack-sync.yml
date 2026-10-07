@@ -28,10 +28,31 @@ jobs:
           ref: main
           fetch-depth: 0
       - run: git config user.name 'github-actions[bot]' && git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      # Regenerates frontend/pnpm-lock.yaml when it is the only conflict.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
       - id: sync
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/jack/sync-upstream.py
+      # A green run must mean nothing is waiting: fail once when a new sync PR is
+      # blocked (GitHub notifies the owner) and warn while it stays unrepaired.
+      - if: steps.sync.outputs.blocked == 'true'
+        env:
+          PR: ${{ steps.sync.outputs.pr }}
+          REASON: ${{ steps.sync.outputs.reason }}
+        run: |
+          echo "### Upstream sync blocked: $PR" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Repair it as described in CONTRIBUTING.md (上游同步).' >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$REASON" == existing_pr ]]; then
+            echo "::warning::Upstream sync PR $PR is still a blocked draft"
+          else
+            echo "::error::Upstream sync PR $PR needs manual conflict repair"; exit 1
+          fi
   verify:
     needs: prepare
     if: needs.prepare.outputs.ready == 'true'
