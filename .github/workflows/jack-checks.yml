@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 jobs:
+  # Test failures that the recorded upstream commit (.jack/upstream.json) also
+  # has are inherited, not Jack regressions: they are reported and allowed, so a
+  # broken official release does not stop sync or publication. Lint, type-check
+  # and build stay strict. The upstream run happens only when tests fail and is
+  # cached per upstream commit.
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -19,10 +24,60 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - run: go test -tags=unit ./...
+      - name: Run tests
+        id: tests
         working-directory: backend
-      - run: go test -tags=integration ./...
-        working-directory: backend
+        run: |
+          status=0
+          for tags in unit integration; do
+            go test -json -tags="$tags" ./... > "$RUNNER_TEMP/go-$tags.json" || status=1
+          done
+          python3 ../scripts/jack/test-baseline.py collect go "$RUNNER_TEMP"/go-*.json > "$RUNNER_TEMP/failures.txt"
+          echo "failed=$status" >> "$GITHUB_OUTPUT"
+      - name: Read upstream base
+        id: upstream
+        if: steps.tests.outputs.failed == '1'
+        run: echo "commit=$(jq -r .commit .jack/upstream.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6
+        id: cache
+        if: steps.tests.outputs.failed == '1'
+        with:
+          path: ${{ runner.temp }}/baseline.txt
+          key: jack-baseline-backend-v1-${{ steps.upstream.outputs.commit }}
+      - uses: actions/checkout@v6
+        if: steps.tests.outputs.failed == '1' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          ref: ${{ steps.upstream.outputs.commit }}
+          path: .jack-baseline
+      - uses: actions/setup-go@v6
+        if: steps.tests.outputs.failed == '1' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          go-version-file: .jack-baseline/backend/go.mod
+          cache-dependency-path: .jack-baseline/backend/go.sum
+      - name: Run upstream tests
+        if: steps.tests.outputs.failed == '1' && steps.cache.outputs.cache-hit != 'true'
+        working-directory: .jack-baseline/backend
+        run: |
+          for tags in unit integration; do
+            go test -json -tags="$tags" ./... > "$RUNNER_TEMP/upstream-$tags.json" || true
+          done
+          python3 "$GITHUB_WORKSPACE/scripts/jack/test-baseline.py" collect go "$RUNNER_TEMP"/upstream-*.json > "$RUNNER_TEMP/baseline.txt" 2>/dev/null
+      - uses: actions/cache/save@v6
+        if: steps.tests.outputs.failed == '1' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/baseline.txt
+          key: jack-baseline-backend-v1-${{ steps.upstream.outputs.commit }}
+      - name: Compare with upstream
+        if: steps.tests.outputs.failed == '1'
+        env:
+          UPSTREAM: ${{ steps.upstream.outputs.commit }}
+        run: python3 scripts/jack/test-baseline.py compare --label backend --upstream "$UPSTREAM" --current "$RUNNER_TEMP/failures.txt" --baseline "$RUNNER_TEMP/baseline.txt" --inherited "$RUNNER_TEMP/inherited-backend.txt"
+      - uses: actions/upload-artifact@v7
+        if: steps.tests.outputs.failed == '1'
+        with:
+          name: jack-inherited-backend
+          path: ${{ runner.temp }}/inherited-backend.txt
+          if-no-files-found: ignore
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -42,8 +97,59 @@ jobs:
       # Warning only: reports upstream markup changes that affect the Jack look.
       - run: node jack/check-style-hooks.js
         working-directory: frontend
-      - run: pnpm run lint:check && pnpm run test:run && pnpm run build
+      - run: pnpm run lint:check
         working-directory: frontend
+      - name: Run tests
+        id: tests
+        working-directory: frontend
+        run: |
+          status=0
+          pnpm exec vitest run --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/vitest.json" || status=1
+          : > "$RUNNER_TEMP/failures.txt"
+          if [[ -f "$RUNNER_TEMP/vitest.json" ]]; then
+            python3 ../scripts/jack/test-baseline.py collect vitest "$RUNNER_TEMP/vitest.json" --root . > "$RUNNER_TEMP/failures.txt" 2>/dev/null
+          fi
+          echo "failed=$status" >> "$GITHUB_OUTPUT"
+      - run: pnpm run build
+        working-directory: frontend
+      - name: Read upstream base
+        id: upstream
+        if: steps.tests.outputs.failed == '1'
+        run: echo "commit=$(jq -r .commit .jack/upstream.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6
+        id: cache
+        if: steps.tests.outputs.failed == '1'
+        with:
+          path: ${{ runner.temp }}/baseline.txt
+          key: jack-baseline-frontend-v1-${{ steps.upstream.outputs.commit }}
+      - uses: actions/checkout@v6
+        if: steps.tests.outputs.failed == '1' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          ref: ${{ steps.upstream.outputs.commit }}
+          path: .jack-baseline
+      - name: Run upstream tests
+        if: steps.tests.outputs.failed == '1' && steps.cache.outputs.cache-hit != 'true'
+        working-directory: .jack-baseline/frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec vitest run --reporter=json --outputFile.json="$RUNNER_TEMP/upstream-vitest.json" > /dev/null || true
+          python3 "$GITHUB_WORKSPACE/scripts/jack/test-baseline.py" collect vitest "$RUNNER_TEMP/upstream-vitest.json" --root . > "$RUNNER_TEMP/baseline.txt" 2>/dev/null
+      - uses: actions/cache/save@v6
+        if: steps.tests.outputs.failed == '1' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/baseline.txt
+          key: jack-baseline-frontend-v1-${{ steps.upstream.outputs.commit }}
+      - name: Compare with upstream
+        if: steps.tests.outputs.failed == '1'
+        env:
+          UPSTREAM: ${{ steps.upstream.outputs.commit }}
+        run: python3 scripts/jack/test-baseline.py compare --label frontend --upstream "$UPSTREAM" --current "$RUNNER_TEMP/failures.txt" --baseline "$RUNNER_TEMP/baseline.txt" --inherited "$RUNNER_TEMP/inherited-frontend.txt"
+      - uses: actions/upload-artifact@v7
+        if: steps.tests.outputs.failed == '1'
+        with:
+          name: jack-inherited-frontend
+          path: ${{ runner.temp }}/inherited-frontend.txt
+          if-no-files-found: ignore
   deployment:
     runs-on: ubuntu-latest
     steps:

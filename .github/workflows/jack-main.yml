@@ -84,6 +84,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        if: steps.existing.outputs.skip != 'true'
+        continue-on-error: true
+        with:
+          pattern: jack-inherited-*
+          merge-multiple: true
+          path: .jack-dist/inherited
       - name: Publish images and immutable release
         if: steps.existing.outputs.skip != 'true'
         env:
@@ -98,9 +105,12 @@ jobs:
           git rev-parse --verify "refs/tags/v$VERSION" >/dev/null 2>&1 || git tag "v$VERSION" "$GITHUB_SHA"
           git push origin "v$VERSION"
           python3 - <<'PY'
-          import json, os
+          import glob, json, os
           m=json.load(open('.jack-dist/jack-release.json'))
           with open('.jack-dist/notes.md','w') as f:
               f.write(f"Sub2API-Jack {m['version']}\n\nBased on official {m['upstream_version']} ({m['upstream_commit']}).\n\nFleet management and Jack regression checks passed. Production deployment remains manual.\n\nDocker: `ghcr.io/jacklee-code/sub2api-jack:{m['version']}`\n\nRuntime ID: `{m['runtime_id']}`. Binary rollback is limited to compatible Jack releases on the same upstream base.\n")
+              inherited = sorted(line for path in glob.glob('.jack-dist/inherited/*.txt') for line in open(path).read().splitlines() if line)
+              if inherited:
+                  f.write(f"\nTests that also fail on official {m['upstream_version']} (inherited, not Jack regressions):\n\n" + ''.join(f'- `{line}`\n' for line in inherited))
           PY
           gh release create "v$VERSION" .jack-dist/sub2api_*.tar.gz .jack-dist/checksums.txt .jack-dist/jack-release.json --title "Sub2API-Jack $VERSION" --notes-file .jack-dist/notes.md --latest --verify-tag

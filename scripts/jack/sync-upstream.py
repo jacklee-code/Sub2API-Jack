@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Merge official stable releases into a reviewable branch; never rewrite main."""
 import argparse
+import fnmatch
 import json
 import os
 from pathlib import Path
@@ -12,9 +13,6 @@ ROOT = Path(__file__).resolve().parents[2]
 UPSTREAM = 'Wei-Shaw/sub2api'
 REPO = 'jacklee-code/Sub2API-Jack'
 OWNER = 'jacklee-code'
-# Generated files: keep Jack's copy and regenerate it from the merged manifests.
-# Jack checks install with --frozen-lockfile, so a stale result fails before merge.
-REGENERATED = {'frontend/pnpm-lock.yaml': ('pnpm', '--dir', 'frontend', 'install', '--lockfile-only')}
 
 def run(*args, check=True):
     return subprocess.run(args, cwd=ROOT, text=True, capture_output=True, check=check)
@@ -25,16 +23,45 @@ def output(**values):
             for key, value in values.items(): f.write(f'{key}={value}\n')
     print(json.dumps(values))
 
-def resolve_generated(conflicts):
-    """Resolve a merge whose only conflicts are generated files; return success."""
-    if not conflicts or any(path not in REGENERATED for path in conflicts): return False
-    for path in conflicts:
-        run('git', 'checkout', '--ours', '--', path)
-        regenerate = run(*REGENERATED[path], check=False)
-        if regenerate.returncode != 0:
-            print(regenerate.stdout, regenerate.stderr); return False
+def load_policy():
+    path = ROOT / '.jack/merge-policy.json'
+    policy = json.loads(path.read_text()) if path.exists() else {}
+    return {'upstream_wins': policy.get('upstream_wins', []), 'regenerate': policy.get('regenerate', {}), 'union': policy.get('union', [])}
+
+def strategy(path, policy):
+    if any(fnmatch.fnmatchcase(path, pattern) for pattern in policy['upstream_wins']): return 'upstream'
+    if path in policy['union']: return 'union'
+    if path in policy['regenerate']: return 'regenerate'
+    return None
+
+def resolve_conflicts(conflicts, policy):
+    """Resolve conflicts covered by .jack/merge-policy.json; return the resolved paths.
+
+    upstream: take the official version (Jack keeps no edits there).
+    union: keep every line of both sides (go.sum; CI proves the module graph).
+    regenerate: keep Jack's copy and rebuild it from the merged manifests; Jack
+    checks install with --frozen-lockfile, so a stale result fails before merge.
+    """
+    plan = {path: strategy(path, policy) for path in conflicts}
+    if not conflicts or None in plan.values(): return None
+    for path, how in sorted(plan.items(), key=lambda item: item[1] == 'regenerate'):
+        if how == 'upstream':
+            if run('git', 'checkout', '--theirs', '--', path, check=False).returncode != 0:
+                if run('git', 'rm', '-q', '--', path, check=False).returncode != 0: return None
+                continue
+        elif how == 'union':
+            sides = [run('git', 'show', f':{stage}:{path}', check=False) for stage in (2, 3)]
+            if any(side.returncode != 0 for side in sides): return None
+            lines = {line for side in sides for line in side.stdout.splitlines() if line}
+            (ROOT / path).write_text(''.join(f'{line}\n' for line in sorted(lines)))
+        else:
+            run('git', 'checkout', '--ours', '--', path)
+            regenerate = run(*policy['regenerate'][path], check=False)
+            if regenerate.returncode != 0:
+                print(regenerate.stdout, regenerate.stderr); return None
         run('git', 'add', '--', path)
-    return not run('git', 'diff', '--name-only', '--diff-filter=U').stdout.strip()
+    if run('git', 'diff', '--name-only', '--diff-filter=U').stdout.strip(): return None
+    return plan
 
 def main():
     parser = argparse.ArgumentParser()
@@ -64,11 +91,13 @@ def main():
         # repeatedly replace it, erase repairs, or publish an unreviewed base.
         output(ready='false', reason='existing_pr', pr=pr['number'], blocked=str(pr['isDraft']).lower()); return
     run('git', 'switch', '-c', branch, 'origin/main')
+    policy = load_policy()
     merge = run('git', 'merge', '--no-ff', '--no-edit', commit, check=False)
-    blocked = merge.returncode != 0
+    blocked, resolved = merge.returncode != 0, {}
     if blocked:
         conflicts = run('git', 'diff', '--name-only', '--diff-filter=U').stdout
-        blocked = not resolve_generated(conflicts.split())
+        resolved = resolve_conflicts(conflicts.split(), policy)
+        blocked = resolved is None
     if blocked:
         run('git', 'merge', '--abort')
         (ROOT / '.jack/upstream-conflict.md').write_text(f'# Upstream {tag} needs manual integration\n\nTarget commit: `{commit}`\n\nConflicting paths:\n\n```\n{conflicts}```\n\nMerge the target, remove this file, update upstream.json and rerun Jack checks.\n')
@@ -81,6 +110,8 @@ def main():
         run('git', 'commit', '-m', f'chore: track upstream {tag}')
     run('git', 'push', 'origin', branch)
     body = f'Integrate official [{tag}]({release["html_url"]}) ({commit}) while retaining Jack features.\n\n'
+    if resolved:
+        body += 'Conflicts resolved by `.jack/merge-policy.json`:\n' + ''.join(f'- `{path}`: {how}\n' for path, how in sorted(resolved.items())) + '\n'
     body += 'Blocked by merge conflicts; this draft must not be merged until the integration is repaired.' if blocked else 'Jack checks must pass before automatic merge and publication. Production deployment remains manual.'
     with tempfile.NamedTemporaryFile('w', suffix='.md') as f:
         f.write(body); f.flush()

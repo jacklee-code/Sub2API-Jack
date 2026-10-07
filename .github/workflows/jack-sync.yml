@@ -47,7 +47,7 @@ jobs:
           REASON: ${{ steps.sync.outputs.reason }}
         run: |
           echo "### Upstream sync blocked: $PR" >> "$GITHUB_STEP_SUMMARY"
-          echo 'Repair it as described in CONTRIBUTING.md (ÉÏÓÎÍ¬²½).' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Repair it as described in CONTRIBUTING.md (ï¿½ï¿½ï¿½ï¿½Í¬ï¿½ï¿½).' >> "$GITHUB_STEP_SUMMARY"
           if [[ "$REASON" == existing_pr ]]; then
             echo "::warning::Upstream sync PR $PR is still a blocked draft"
           else
@@ -63,6 +63,22 @@ jobs:
     needs: [prepare, verify]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: jack-inherited-*
+          merge-multiple: true
+          path: inherited
+      - name: Note inherited upstream test failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.prepare.outputs.pr }}
+        run: |
+          shopt -s nullglob; files=(inherited/*.txt)
+          (( ${#files[@]} )) || exit 0
+          { echo 'Tests that also fail on the official release (inherited, not Jack regressions):'; echo
+            sort "${files[@]}" | sed 's/.*/- `&`/'; } > comment.md
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file comment.md
       - env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ needs.prepare.outputs.pr }}
