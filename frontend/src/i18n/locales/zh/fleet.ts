@@ -24,5 +24,6 @@ export default {
     noSelection: '請選擇成員', keys: '{count} 個 Key', subscription: '訂閱 #{id}',
     expiredHint: '車隊已到期；新加入的一般成員需續期後才能使用。', history: '已離隊：{count} 人',
     adminHint: '管理員可按需要選擇獨立期限。', expiryRequired: '請輸入有效日期',
+    remaining: '剩餘', fleetQuota: '車隊剩餘額度',
   }
 }
