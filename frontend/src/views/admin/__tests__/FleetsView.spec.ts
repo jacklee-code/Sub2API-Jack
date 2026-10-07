@@ -69,6 +69,26 @@ describe('Fleet management', () => {
     wrapper.unmount()
   })
 
+  it('shows remaining quota bars that shrink as members use their limits', async () => {
+    const base = fleet(1), member = base.members[0]
+    mocks.list.mockResolvedValue([{ ...base, weekly_limit_usd: null, members: [
+      { ...member, daily_usage_usd: 300 },
+      { ...member, user_id: 8, email: 'second@example.test', daily_usage_usd: 0 },
+      { ...member, user_id: 9, email: 'over@example.test', daily_usage_usd: 450 },
+    ] }])
+    const wrapper = render(); await flushPromises()
+    const bar = (label: string) => wrapper.find(`[role="progressbar"][aria-label="${label}"]`)
+    expect(bar('fleet.fleetQuota fleet.daily').attributes('aria-valuenow')).toBe('33')
+    expect(wrapper.text()).toContain('$300.00 / $900.00 · 33%')
+    expect(bar('fleet.fleetQuota fleet.weekly').exists()).toBe(false)
+    expect(bar('fleet.fleetQuota fleet.monthly').attributes('aria-valuenow')).toBe('99')
+    expect(bar('second@example.test fleet.daily fleet.remaining').get('div').attributes('style')).toContain('width: 100%')
+    expect(bar('member@example.test fleet.daily fleet.remaining').get('div').attributes('style')).toContain('width: 0%')
+    expect(bar('over@example.test fleet.daily fleet.remaining').get('div').classes()).toContain('bg-red-500')
+    expect(bar('member@example.test fleet.weekly fleet.remaining').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('resets all fleets with an explicit selected window and reports pending cache synchronization', async () => {
     mocks.mutate.mockResolvedValue({ fleet_id: 0, cache_pending: true })
     const wrapper = render(); await flushPromises()

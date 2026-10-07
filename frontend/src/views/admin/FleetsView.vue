@@ -24,6 +24,16 @@
           <div class="border-b border-gray-100 p-5 dark:border-dark-700">
             <div class="flex items-start justify-between gap-3"><div><h2 class="text-lg font-semibold">{{ fleet.name }}</h2><p class="mt-1 text-sm text-gray-500">{{ fleet.group_name }}</p></div><span class="badge" :class="isExpired(fleet.expires_at) ? 'badge-warning' : 'badge-success'">{{ isExpired(fleet.expires_at) ? t('fleet.expired') : t('fleet.active') }}</span></div>
             <div class="mt-4 flex flex-wrap items-center justify-between gap-2"><div class="text-sm"><span class="text-gray-500">{{ t('fleet.expiry') }} · </span><time class="font-medium">{{ date(fleet.expires_at) }}</time></div><span class="text-sm text-gray-500">{{ currentMembers(fleet).length }} {{ t('fleet.members') }}</span></div>
+            <div v-if="currentMembers(fleet).length" class="mt-4 space-y-2" :aria-label="t('fleet.fleetQuota')">
+              <div v-for="q in fleetQuota(fleet)" :key="q.period" class="flex items-center gap-3 text-xs">
+                <span class="w-10 shrink-0 text-gray-500">{{ t(`fleet.${q.period}`) }}</span>
+                <template v-if="q.pct !== null">
+                  <div class="h-2 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(q.pct)" :aria-label="`${t('fleet.fleetQuota')} ${t(`fleet.${q.period}`)}`"><div class="h-full rounded-full transition-all" :class="barClass(q.pct)" :style="{ width: `${q.pct}%` }"></div></div>
+                  <span class="shrink-0 tabular-nums"><span class="text-gray-500">{{ t('fleet.remaining') }} </span><span class="font-medium">${{ money(q.left) }}</span><span class="text-gray-400"> / ${{ money(q.total) }} · {{ Math.round(q.pct) }}%</span></span>
+                </template>
+                <span v-else class="text-gray-400">∞</span>
+              </div>
+            </div>
             <div class="mt-4 flex flex-wrap gap-2">
               <button class="btn btn-primary btn-sm" @click="open('add', fleet)">{{ t('fleet.add') }}</button>
               <button class="btn btn-secondary btn-sm" @click="open('expiry', fleet)">{{ t('fleet.adjust') }}</button>
@@ -42,7 +52,9 @@
                 <button class="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600" :title="t('fleet.remove')" :aria-label="`${t('fleet.remove')}: ${member.email}`" @click="open('remove', fleet, member)"><Icon name="x" size="sm" /></button>
               </div>
               <div class="mt-3 grid grid-cols-3 gap-3 text-xs">
-                <div v-for="period in periods" :key="period"><p class="mb-1 text-gray-500">{{ t(`fleet.${period}`) }}</p><span class="font-medium">${{ money(usage(member, period)) }}</span><span class="text-gray-400"> / {{ limit(fleet, period) }}</span></div>
+                <div v-for="q in memberQuota(fleet, member)" :key="q.period"><p class="mb-1 text-gray-500">{{ t(`fleet.${q.period}`) }}</p><span class="font-medium">${{ money(usage(member, q.period)) }}</span><span class="text-gray-400"> / {{ limit(fleet, q.period) }}</span>
+                  <div v-if="q.pct !== null" class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(q.pct)" :aria-label="`${member.email} ${t(`fleet.${q.period}`)} ${t('fleet.remaining')}`" :title="`${t('fleet.remaining')} ${Math.round(q.pct)}%`"><div class="h-full rounded-full transition-all" :class="barClass(q.pct)" :style="{ width: `${q.pct}%` }"></div></div>
+                </div>
               </div>
               <button class="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500 hover:text-primary-600" @click="open('member_expiry', fleet, member)"><span :class="member.independent_expiry ? 'rounded bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-900/30' : ''">{{ member.independent_expiry ? t('fleet.independent') : t('fleet.inherited') }}</span><span>{{ date(member.expires_at) }}</span><span v-if="isExpired(member.expires_at)" class="text-amber-600">{{ t('fleet.expired') }}</span></button>
             </li>
@@ -130,6 +142,18 @@ function toDate(value: string) { const parsed = new Date(`${value.length === 16 
 function money(value: number) { return value.toFixed(2) }
 function usage(m: FleetMember, p: Period) { return m[`${p}_usage_usd`] }
 function limit(f: Fleet, p: Period) { const value = f[`${p}_limit_usd`]; return value == null || value <= 0 ? '∞' : `$${money(value)}` }
+function limitValue(f: Fleet, p: Period) { const value = f[`${p}_limit_usd`]; return value == null || value <= 0 ? 0 : value }
+function remainingPct(left: number, max: number) { return max > 0 ? Math.min(Math.max(left / max * 100, 0), 100) : null }
+function memberQuota(f: Fleet, m: FleetMember) { return periods.map(period => { const max = limitValue(f, period); return { period, pct: remainingPct(max - (usage(m, period) || 0), max) } }) }
+function fleetQuota(f: Fleet) {
+  const members = currentMembers(f)
+  return periods.map(period => {
+    const max = limitValue(f, period), total = max * members.length
+    const left = members.reduce((sum, m) => sum + Math.max(max - (usage(m, period) || 0), 0), 0)
+    return { period, left, total, pct: remainingPct(left, total) }
+  })
+}
+function barClass(pct: number) { return pct < 10 ? 'bg-red-500' : pct < 30 ? 'bg-orange-500' : 'bg-green-500' }
 function errorText(e: unknown) { const err = e as { response?: { data?: { message?: string } }; message?: string }; return err.response?.data?.message || err.message || t('fleet.failed') }
 async function load() { loading.value = true; error.value = ''; try { [fleets.value, groups.value] = await Promise.all([api.list(), groupsAPI.getAll()]) } catch (e) { error.value = errorText(e) } finally { loading.value = false } }
 function close() { if (!busy.value) { mode.value = null; ++previewSequence; ++searchSequence } }

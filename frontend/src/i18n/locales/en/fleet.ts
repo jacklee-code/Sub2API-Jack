@@ -24,5 +24,6 @@ export default {
     noSelection: 'Select a member', keys: '{count} keys', subscription: 'Subscription #{id}',
     expiredHint: 'This fleet has expired. New members following its expiry need a renewal before use.', history: '{count} former members',
     adminHint: 'Administrators may choose independent expiry when needed.', expiryRequired: 'Enter a valid date',
+    remaining: 'Remaining', fleetQuota: 'Fleet remaining quota',
   }
 }
