@@ -28,11 +28,18 @@ container recreation; image changes and executable changes are separate actions.
    checksums, `jack-release.json`, and GHCR images. Production is not changed.
 4. `Sync upstream stable release` runs hourly at minute 17. It creates a merge PR,
    runs the same checks against its exact commit, merges on success and explicitly
-   dispatches publication. A conflict only in `frontend/pnpm-lock.yaml` is
-   regenerated from the merged `package.json`. Any other conflict opens a draft
-   assigned to `jacklee-code` and fails that run so GitHub notifies the owner;
-   later runs warn while the draft stays unrepaired. An existing failed or draft
-   sync PR is left for repair.
+   dispatches publication, without a person or an LLM. Conflicts listed in
+   `.jack/merge-policy.json` are resolved mechanically: `upstream_wins` takes the
+   official file, `regenerate` rebuilds `pnpm-lock.yaml`, and `union` keeps both
+   sides of `go.sum`. Any other conflict opens a draft assigned to
+   `jacklee-code` and fails that run so GitHub notifies the owner; later runs
+   warn while the draft stays unrepaired. An existing failed or draft sync PR is
+   left for repair.
+5. When Go or vitest tests fail, `Jack checks` runs the same tests on the
+   upstream commit in `.jack/upstream.json` (cached per commit). Failures the
+   official release also has are inherited: they are allowed and listed in
+   warnings, the sync PR and the release notes. Failures that only Jack has
+   still block. Lint, type-check and build are never compared.
    Run `python3 scripts/jack/sync-upstream.py --dry-run` for a read-only check.
 
 Do not reset this repository to upstream or use GitHub's discard-changes sync.

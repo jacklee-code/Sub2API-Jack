@@ -85,9 +85,19 @@ Release，透過 [sync-upstream.py](scripts/jack/sync-upstream.py) 建立 merge 
 唯讀檢查可使用 `python3 scripts/jack/sync-upstream.py --dry-run`。
 `.jack/upstream.json` 必須記錄實際已合併的官方 tag／commit，不能只改版本號。
 
-若唯一衝突是 `frontend/pnpm-lock.yaml`，排程保留 Jack 版本並以
-`pnpm install --lockfile-only` 依合併後的 `package.json` 重建，再照常驗證；
-過期的 lockfile 會在 `--frozen-lockfile` 安裝時失敗，不會被合併。
+全程不需要人或 LLM，除非遇到下列規則無法處理的情況：
+
+- **衝突政策**：[.jack/merge-policy.json](.jack/merge-policy.json) 列出可機械解決的衝突。
+  `upstream_wins` 直接採用官方版本，只列 Jack 不需保留改動的檔案（支援 glob）；
+  `regenerate` 保留 Jack 版本後重建（`pnpm-lock.yaml`，過期結果會在
+  `--frozen-lockfile` 失敗）；`union` 保留兩邊所有行（`go.sum`）。PR 說明會列出
+  套用過的規則。只要有一個衝突不在清單內，就整次視為受阻。
+- **上游基準**：`Jack checks` 的單元／整合測試與 vitest 失敗時，會對
+  `.jack/upstream.json` 記錄的官方 commit 跑同一套測試（結果按 commit 快取）。
+  官方本身也失敗的測試算繼承，不擋合併與發佈，但會出現在 warning、sync PR
+  留言及 Release notes；只在 Jack 失敗的測試仍然擋下。lint、型別檢查與 build
+  不做比對，一律必須通過。比對邏輯在
+  [test-baseline.py](scripts/jack/test-baseline.py)。
 
 衝突或測試失敗時，現有 PR 會保留等待修復；排程不會自動解決語意衝突。
 新的 sync PR 會指派給 `jacklee-code`；衝突時該次 workflow 會失敗以觸發 GitHub

@@ -1,0 +1,12 @@
+{
+  "upstream_wins": [
+    ".github/audit-exceptions.yml",
+    "frontend/src/components/keys/__tests__/UseKeyModal.spec.ts"
+  ],
+  "regenerate": {
+    "frontend/pnpm-lock.yaml": ["pnpm", "--dir", "frontend", "install", "--lockfile-only"]
+  },
+  "union": [
+    "backend/go.sum"
+  ]
+}
