@@ -25,7 +25,7 @@ export default {
     expiredHint: 'This fleet has expired. New members following its expiry need a renewal before use.', history: '{count} former members',
     adminHint: 'Administrators may choose independent expiry when needed.', expiryRequired: 'Enter a valid date',
     remaining: 'Remaining', fleetQuota: 'Fleet remaining quota',
-    nextReset: 'Account next reset', weeklyRemaining: 'Account 7d remaining', noAccount: 'No account is bound to this group',
+    nextReset: 'Account next reset', weeklyRemaining: 'Account weekly quota remaining', noAccount: 'No account is bound to this group',
     resetInDays: 'in {d}d {h}h', resetInHours: 'in {h}h {m}m',
   }
 }
