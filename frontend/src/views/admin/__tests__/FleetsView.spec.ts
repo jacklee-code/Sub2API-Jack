@@ -2,10 +2,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FleetsView from '../FleetsView.vue'
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn(), mutate: vi.fn(), groups: vi.fn(), users: vi.fn(), success: vi.fn(), info: vi.fn() }))
+const mocks = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn(), mutate: vi.fn(), groups: vi.fn(), users: vi.fn(), accounts: vi.fn(), batchUsage: vi.fn(), success: vi.fn(), info: vi.fn() }))
 vi.mock('@/api/admin/fleets', () => ({ list: mocks.list, preview: mocks.preview, mutate: mocks.mutate }))
 vi.mock('@/api/admin/groups', () => ({ getAll: mocks.groups }))
 vi.mock('@/api/admin/users', () => ({ list: mocks.users }))
+vi.mock('@/api/admin/accounts', () => ({ list: mocks.accounts, getBatchUsage: mocks.batchUsage }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showSuccess: mocks.success, showInfo: mocks.info }) }))
 vi.mock('vue-i18n', async (importOriginal) => ({ ...await importOriginal<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
@@ -27,6 +28,8 @@ beforeEach(() => {
   mocks.preview.mockResolvedValue([])
   mocks.groups.mockResolvedValue([{ id: 30, name: 'Available group', subscription_type: 'subscription', status: 'active' }])
   mocks.mutate.mockResolvedValue({ fleet_id: 1, cache_pending: false })
+  mocks.accounts.mockResolvedValue({ items: [] })
+  mocks.batchUsage.mockResolvedValue({ usage: {}, errors: {} })
 })
 
 describe('Fleet management', () => {
@@ -69,20 +72,22 @@ describe('Fleet management', () => {
     wrapper.unmount()
   })
 
-  it('shows remaining quota bars that shrink as members use their limits', async () => {
+  it('shows the bound account 7d remaining quota and next reset instead of summed fleet totals', async () => {
     const base = fleet(1), member = base.members[0]
     mocks.list.mockResolvedValue([{ ...base, weekly_limit_usd: null, members: [
       { ...member, daily_usage_usd: 300 },
-      { ...member, user_id: 8, email: 'second@example.test', daily_usage_usd: 0 },
       { ...member, user_id: 9, email: 'over@example.test', daily_usage_usd: 450 },
-    ] }])
+    ] }, fleet(2)])
+    mocks.accounts.mockImplementation(async (_p: number, _s: number, filters: { group: string }) => ({ items: filters.group === '10' ? [{ id: 5, name: 'Codex Pro' }] : [] }))
+    mocks.batchUsage.mockResolvedValue({ usage: { 5: { seven_day: { utilization: 38.4, resets_at: '2026-11-01T04:30:00Z', remaining_seconds: 0 } } }, errors: {} })
     const wrapper = render(); await flushPromises()
+    expect(mocks.accounts).toHaveBeenCalledWith(1, 100, { group: '10', lite: '1' })
+    expect(mocks.batchUsage).toHaveBeenCalledWith([5])
     const bar = (label: string) => wrapper.find(`[role="progressbar"][aria-label="${label}"]`)
-    expect(bar('fleet.fleetQuota fleet.daily').attributes('aria-valuenow')).toBe('33')
-    expect(wrapper.text()).toContain('$300.00 / $900.00 · 33%')
-    expect(bar('fleet.fleetQuota fleet.weekly').exists()).toBe(false)
-    expect(bar('fleet.fleetQuota fleet.monthly').attributes('aria-valuenow')).toBe('99')
-    expect(bar('second@example.test fleet.daily fleet.remaining').get('div').attributes('style')).toContain('width: 100%')
+    expect(bar('fleet.fleetQuota Codex Pro').attributes('aria-valuenow')).toBe('62')
+    expect(wrapper.get('[data-fleet-id="1"] [data-next-reset]').text()).toBe('2026-11-01 12:30')
+    expect(wrapper.find('[aria-label="fleet.fleetQuota fleet.daily"]').exists()).toBe(false)
+    expect(wrapper.get('[data-fleet-id="2"]').text()).toContain('fleet.noAccount')
     expect(bar('member@example.test fleet.daily fleet.remaining').get('div').attributes('style')).toContain('width: 0%')
     expect(bar('over@example.test fleet.daily fleet.remaining').get('div').classes()).toContain('bg-red-500')
     expect(bar('member@example.test fleet.weekly fleet.remaining').exists()).toBe(false)
