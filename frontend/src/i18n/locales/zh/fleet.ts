@@ -25,5 +25,7 @@ export default {
     expiredHint: '車隊已到期；新加入的一般成員需續期後才能使用。', history: '已離隊：{count} 人',
     adminHint: '管理員可按需要選擇獨立期限。', expiryRequired: '請輸入有效日期',
     remaining: '剩餘', fleetQuota: '車隊剩餘額度',
+    nextReset: '帳號下次重置', weeklyRemaining: '帳號 7d 剩餘', noAccount: '此分組沒有綁定帳號',
+    resetInDays: '{d} 天 {h} 小時後', resetInHours: '{h} 小時 {m} 分鐘後',
   }
 }

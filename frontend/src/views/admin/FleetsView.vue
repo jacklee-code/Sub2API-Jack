@@ -23,16 +23,25 @@
         <section v-for="fleet in fleets" :key="fleet.id" :data-fleet-id="fleet.id" class="overflow-hidden rounded-2xl border bg-white shadow-sm transition dark:bg-dark-800" :class="dragOver === fleet.id ? 'border-primary-500 ring-2 ring-primary-200' : 'border-gray-200 dark:border-dark-700'" @dragover.prevent="dragOver = fleet.id" @dragleave="dragOver = null" @drop.prevent="drop(fleet)">
           <div class="border-b border-gray-100 p-5 dark:border-dark-700">
             <div class="flex items-start justify-between gap-3"><div><h2 class="text-lg font-semibold">{{ fleet.name }}</h2><p class="mt-1 text-sm text-gray-500">{{ fleet.group_name }}</p></div><span class="badge" :class="isExpired(fleet.expires_at) ? 'badge-warning' : 'badge-success'">{{ isExpired(fleet.expires_at) ? t('fleet.expired') : t('fleet.active') }}</span></div>
-            <div class="mt-4 flex flex-wrap items-center justify-between gap-2"><div class="text-sm"><span class="text-gray-500">{{ t('fleet.expiry') }} · </span><time class="font-medium">{{ date(fleet.expires_at) }}</time></div><span class="text-sm text-gray-500">{{ currentMembers(fleet).length }} {{ t('fleet.members') }}</span></div>
-            <div v-if="currentMembers(fleet).length" class="mt-4 space-y-2" :aria-label="t('fleet.fleetQuota')">
-              <div v-for="q in fleetQuota(fleet)" :key="q.period" class="flex items-center gap-3 text-xs">
-                <span class="w-10 shrink-0 text-gray-500">{{ t(`fleet.${q.period}`) }}</span>
-                <template v-if="q.pct !== null">
-                  <div class="h-2 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(q.pct)" :aria-label="`${t('fleet.fleetQuota')} ${t(`fleet.${q.period}`)}`"><div class="h-full rounded-full transition-all" :class="barClass(q.pct)" :style="{ width: `${q.pct}%` }"></div></div>
-                  <span class="shrink-0 tabular-nums"><span class="text-gray-500">{{ t('fleet.remaining') }} </span><span class="font-medium">${{ money(q.left) }}</span><span class="text-gray-400"> / ${{ money(q.total) }} · {{ Math.round(q.pct) }}%</span></span>
-                </template>
-                <span v-else class="text-gray-400">∞</span>
+            <div class="mt-4 space-y-3" :aria-label="t('fleet.fleetQuota')">
+              <p v-if="usageLoading && !accountUsage[fleet.group_id]" class="text-xs text-gray-400">{{ t('fleet.loading') }}</p>
+              <p v-else-if="!accountUsage[fleet.group_id]?.length" class="text-xs text-gray-400">{{ t('fleet.noAccount') }}</p>
+              <div v-for="acc in accountUsage[fleet.group_id] || []" :key="acc.id" :data-account-id="acc.id" class="rounded-xl bg-gray-50 p-4 dark:bg-dark-700/50">
+                <div class="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p class="text-xs text-gray-500">{{ t('fleet.nextReset') }}</p>
+                    <p class="text-xl font-semibold tabular-nums" data-next-reset>{{ acc.resets_at ? shortDate(acc.resets_at) : '—' }}</p>
+                    <p v-if="acc.resets_at" class="text-xs font-medium text-primary-600 dark:text-primary-400">{{ relative(acc.resets_at) }}</p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-xs text-gray-500">{{ t('fleet.weeklyRemaining') }}</p>
+                    <p class="text-xl font-semibold tabular-nums">{{ acc.pct === null ? '—' : `${Math.round(acc.pct)}%` }}</p>
+                  </div>
+                </div>
+                <div v-if="acc.pct !== null" class="mt-2 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(acc.pct)" :aria-label="`${t('fleet.fleetQuota')} ${acc.name}`"><div class="h-full rounded-full transition-all" :class="barClass(acc.pct)" :style="{ width: `${acc.pct}%` }"></div></div>
+                <p class="mt-2 truncate text-xs text-gray-400" :title="acc.error || acc.name">{{ acc.name }}<span v-if="acc.error" class="ml-1 text-amber-600">· {{ acc.error }}</span></p>
               </div>
+              <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500"><span>{{ t('fleet.expiry') }} · <time>{{ date(fleet.expires_at) }}</time></span><span>{{ currentMembers(fleet).length }} {{ t('fleet.members') }}</span></div>
             </div>
             <div class="mt-4 flex flex-wrap gap-2">
               <button class="btn btn-primary btn-sm" @click="open('add', fleet)">{{ t('fleet.add') }}</button>
@@ -108,14 +117,18 @@ import { useAppStore } from '@/stores'
 import * as api from '@/api/admin/fleets'
 import * as groupsAPI from '@/api/admin/groups'
 import * as usersAPI from '@/api/admin/users'
+import * as accountsAPI from '@/api/admin/accounts'
 import type { AdminGroup, AdminUser } from '@/types'
 import type { Fleet, FleetMember, FleetAction, FleetMemberInput } from '@/api/admin/fleets'
 
 type Period = 'daily' | 'weekly' | 'monthly'
+type AccountWeekly = { id: number; name: string; pct: number | null; resets_at: string | null; error?: string }
 type Candidate = Partial<FleetMember> & { user_id: number; email: string; selected: boolean; independent_expiry: boolean; newExpiry: string; blocked?: boolean }
 const { t } = useI18n()
 const app = useAppStore()
 const fleets = ref<Fleet[]>([]), groups = ref<AdminGroup[]>([])
+const accountUsage = ref<Record<number, AccountWeekly[]>>({}), usageLoading = ref(false)
+let usageSequence = 0
 const loading = ref(false), busy = ref(false), previewLoading = ref(false)
 const error = ref(''), dialogError = ref('')
 const mode = ref<FleetAction['action'] | null>(null)
@@ -145,17 +158,30 @@ function limit(f: Fleet, p: Period) { const value = f[`${p}_limit_usd`]; return 
 function limitValue(f: Fleet, p: Period) { const value = f[`${p}_limit_usd`]; return value == null || value <= 0 ? 0 : value }
 function remainingPct(left: number, max: number) { return max > 0 ? Math.min(Math.max(left / max * 100, 0), 100) : null }
 function memberQuota(f: Fleet, m: FleetMember) { return periods.map(period => { const max = limitValue(f, period); return { period, pct: remainingPct(max - (usage(m, period) || 0), max) } }) }
-function fleetQuota(f: Fleet) {
-  const members = currentMembers(f)
-  return periods.map(period => {
-    const max = limitValue(f, period), total = max * members.length
-    const left = members.reduce((sum, m) => sum + Math.max(max - (usage(m, period) || 0), 0), 0)
-    return { period, left, total, pct: remainingPct(left, total) }
-  })
+function shortDate(value: string) { return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Singapore', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) }
+function relative(value: string) {
+  const minutes = Math.max(Math.round((new Date(value).getTime() - Date.now()) / 60000), 0)
+  const d = Math.floor(minutes / 1440), h = Math.floor(minutes % 1440 / 60), m = minutes % 60
+  return d > 0 ? t('fleet.resetInDays', { d, h }) : t('fleet.resetInHours', { h, m })
+}
+async function loadAccountUsage() {
+  const seq = ++usageSequence
+  usageLoading.value = true
+  try {
+    const groupIds = [...new Set(fleets.value.map(f => f.group_id))]
+    const lists = await Promise.all(groupIds.map(async id => [id, (await accountsAPI.list(1, 100, { group: String(id), lite: '1' })).items] as const))
+    const ids = [...new Set(lists.flatMap(([, items]) => items.map(a => a.id)))]
+    const batch = ids.length ? await accountsAPI.getBatchUsage(ids) : { usage: {}, errors: {} }
+    if (seq !== usageSequence) return
+    accountUsage.value = Object.fromEntries(lists.map(([gid, items]) => [gid, items.map(a => {
+      const week = batch.usage[String(a.id)]?.seven_day
+      return { id: a.id, name: a.name, pct: week ? Math.min(Math.max(100 - week.utilization, 0), 100) : null, resets_at: week?.resets_at || null, error: batch.errors[String(a.id)] }
+    })]))
+  } catch (e) { if (seq === usageSequence) error.value = errorText(e) } finally { if (seq === usageSequence) usageLoading.value = false }
 }
 function barClass(pct: number) { return pct < 10 ? 'bg-red-500' : pct < 30 ? 'bg-orange-500' : 'bg-green-500' }
 function errorText(e: unknown) { const err = e as { response?: { data?: { message?: string } }; message?: string }; return err.response?.data?.message || err.message || t('fleet.failed') }
-async function load() { loading.value = true; error.value = ''; try { [fleets.value, groups.value] = await Promise.all([api.list(), groupsAPI.getAll()]) } catch (e) { error.value = errorText(e) } finally { loading.value = false } }
+async function load() { loading.value = true; error.value = ''; try { [fleets.value, groups.value] = await Promise.all([api.list(), groupsAPI.getAll()]); void loadAccountUsage() } catch (e) { error.value = errorText(e) } finally { loading.value = false } }
 function close() { if (!busy.value) { mode.value = null; ++previewSequence; ++searchSequence } }
 function open(action: FleetAction['action'], f?: Fleet, m?: FleetMember) {
   if (busy.value) return
@@ -203,5 +229,5 @@ async function submit() {
   } catch (e) { dialogError.value = errorText(e) } finally { busy.value = false }
 }
 onMounted(load)
-onBeforeUnmount(() => { clearTimeout(searchTimer); ++searchSequence; ++previewSequence })
+onBeforeUnmount(() => { clearTimeout(searchTimer); ++searchSequence; ++previewSequence; ++usageSequence })
 </script>
