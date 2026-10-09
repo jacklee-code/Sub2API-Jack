@@ -106,6 +106,14 @@ Release，透過 [sync-upstream.py](scripts/jack/sync-upstream.py) 建立 merge 
 保留 Jack 功能，更新 `.jack/upstream.json`，移除已解決的衝突標記，推送並重新驗證。
 因排程會保留既有 PR，修復後由 owner／已授權 agent 完成合併。
 
+sync PR 必須以 **merge commit** 合併（`gh pr merge --merge`，或網頁選
+"Create a merge commit"），不可 squash／rebase。squash 會讓 `main` 失去官方
+commit 作為祖先，下次同步仍從舊 tag 比對並重現同樣衝突；而且 squash 訊息會帶入
+官方 commit 標題中的 `[skip ci]`，使 push 不觸發 `jack-main.yml`，該版本不會發佈。
+啟用 auto-merge 時同樣要指定 merge 方式，並以 `gh pr view --json autoMergeRequest`
+確認。若已誤用 squash，以 `git merge -s ours <官方 commit>` 開 PR 補回祖先
+（樹不變），再以 merge commit 合併；該次 push 會觸發發佈。
+
 若透過 workflow 的 `GITHUB_TOKEN` 合併，須像 `jack-sync.yml` 一樣明確 dispatch
 [jack-main.yml](.github/workflows/jack-main.yml)，不能依賴該 token 的 push 再觸發
 另一個 workflow。發佈失敗應先診斷、修復並重跑；不可覆寫已發布的版本。
