@@ -42,18 +42,25 @@ class SyncTest(unittest.TestCase):
         target = git(author, 'rev-parse', 'HEAD')
         return work, upstream, target, git
 
-    def sync(self, tmp, edits):
+    def sync(self, tmp, edits, *, existing=None, wire_fails=False):
         work, upstream, target, git = self.fixture(tmp, edits)
         commands = []
         def command(*args, check=True):
             commands.append(args)
+            if args[0] == 'go':
+                self.assertEqual((work/'backend/cmd/server/wire_gen.go').read_text(), 'jack wire\n')
+                self.assertEqual((work/'backend/cmd/server/wire.go').read_text(), 'merged providers\n')
+                if wire_fails:
+                    return subprocess.CompletedProcess(args, 1, '', 'missing provider')
+                (work/'backend/cmd/server/wire_gen.go').write_text('generated with Jack and upstream providers\n')
+                return subprocess.CompletedProcess(args, 0, '', '')
             if args[0] == 'pnpm':
                 self.assertEqual((work/'frontend/pnpm-lock.yaml').read_text(), 'jack lock\n')
                 (work/'frontend/pnpm-lock.yaml').write_text('regenerated\n')
                 return subprocess.CompletedProcess(args, 0, '', '')
             if args[0] == 'gh':
                 if args[1] == 'api': out = json.dumps({'tag_name':'v0.2.14','draft':False,'prerelease':False,'html_url':'https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.14'})
-                elif args[1:3] == ('pr','list'): out = '[]'
+                elif args[1:3] == ('pr','list'): out = json.dumps(existing or [])
                 else: out = 'https://github.com/jacklee-code/Sub2API-Jack/pull/123'
                 return subprocess.CompletedProcess(args, 0, out, '')
             args = list(args)
@@ -63,6 +70,10 @@ class SyncTest(unittest.TestCase):
             sync.main()
         self.assertEqual((work/'custom.txt').read_text(), 'keep custom fleet feature\n')
         creates = [c for c in commands if c[:3] == ('gh','pr','create')]
+        if existing:
+            self.assertFalse(creates)
+            self.assertFalse([c for c in commands if c[:2] in [('git', 'switch'), ('git', 'push')]])
+            return (Path(tmp)/'output').read_text()
         self.assertEqual(len(creates), 1)
         self.assertIn('jacklee-code', creates[0])
         return work, target, git, creates[0], commands, (Path(tmp)/'output').read_text()
@@ -99,5 +110,32 @@ class SyncTest(unittest.TestCase):
             self.assertEqual((work/'frontend/pnpm-lock.yaml').read_text(), 'regenerated\n')
             self.assertEqual((work/'.github/audit-exceptions.yml').read_text(), 'expires: 2\n')
             self.assertEqual((work/'backend/go.sum').read_text(), 'a v1\nb v1\nc v1\n')
+
+    def test_wire_regenerated_from_merged_providers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, target, git, create, _, output = self.sync(tmp, {
+                'backend/cmd/server/wire_gen.go': ('base wire\n', 'jack wire\n', 'upstream wire\n'),
+                'backend/cmd/server/wire.go': ('old providers\n', None, 'merged providers\n')})
+            self.assertReady(work, target, git, create, output)
+            self.assertEqual((work/'backend/cmd/server/wire_gen.go').read_text(), 'generated with Jack and upstream providers\n')
+            self.assertEqual(git(work, 'status', '--porcelain'), '')
+
+    def test_failed_wire_generation_preserves_draft_and_original_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _, _, create, _, output = self.sync(tmp, {
+                'backend/cmd/server/wire_gen.go': ('base wire\n', 'jack wire\n', 'upstream wire\n'),
+                'backend/cmd/server/wire.go': ('old providers\n', None, 'merged providers\n')}, wire_fails=True)
+            self.assertIn('--draft', create)
+            self.assertIn('blocked=true', output)
+            self.assertEqual((work/'backend/cmd/server/wire_gen.go').read_text(), 'jack wire\n')
+
+    def test_existing_pr_always_reports_blocked_without_overwriting_repairs(self):
+        for draft in (True, False):
+            with self.subTest(draft=draft), tempfile.TemporaryDirectory() as tmp:
+                output = self.sync(tmp, {'official.txt': ('old\n', None, 'new\n')},
+                                   existing=[{'number': 28, 'isDraft': draft, 'headRefOid': 'repair'}])
+                self.assertIn('blocked=true', output)
+                self.assertIn('ready=false', output)
+                self.assertIn('reason=existing_pr', output)
 
 if __name__ == '__main__': unittest.main()

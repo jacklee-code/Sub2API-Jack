@@ -30,10 +30,13 @@ container recreation; image changes and executable changes are separate actions.
    runs the same checks against its exact commit, merges on success and explicitly
    dispatches publication, without a person or an LLM. Conflicts listed in
    `.jack/merge-policy.json` are resolved mechanically: `upstream_wins` takes the
-   official file, `regenerate` rebuilds `pnpm-lock.yaml`, and `union` keeps both
+   official file, `regenerate` rebuilds `pnpm-lock.yaml` and
+   `backend/cmd/server/wire_gen.go` from the merged inputs (Wire uses readonly
+   module metadata), and `union` keeps both
    sides of `go.sum`. Any other conflict opens a draft assigned to
    `jacklee-code` and fails that run so GitHub notifies the owner; later runs
-   warn while the draft stays unrepaired. An existing failed or draft sync PR is
+   fail while any sync PR for that release remains open, including non-draft PRs.
+   An existing failed or draft sync PR is
    left for repair.
 5. When Go or vitest tests fail, `Jack checks` runs the same tests on the
    upstream commit in `.jack/upstream.json` (cached per commit). Failures the
