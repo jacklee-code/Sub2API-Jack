@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, reactive } from 'vue'
 
 import GroupI18nField from '../GroupI18nField.vue'
+import { availableLocales } from '@/i18n'
 import type { GroupI18n } from '@/types'
 
 vi.mock('vue-i18n', async () => {
@@ -90,7 +91,9 @@ describe('GroupI18nField', () => {
     expect(menuItems(wrapper).map((item) => [item.attributes('data-locale'), item.text()])).toEqual([
       ['default', 'admin.groups.i18nField.default'],
       ['en', 'admin.groups.i18nField.edit:English'],
-      ['zh', 'admin.groups.i18nField.add:中文']
+      ...availableLocales.filter((locale) => locale.code !== 'en').map((locale) => [
+        locale.code, `admin.groups.i18nField.add:${locale.name}`
+      ])
     ])
   })
 
@@ -126,6 +129,24 @@ describe('GroupI18nField', () => {
     await input.setValue('Standard')
 
     expect(state.i18n).toEqual({ en: { name: 'Standard', description: 'Pro + Max pool' } })
+  })
+
+  it('edits Traditional Chinese independently of Simplified Chinese and the default', async () => {
+    const { wrapper, state } = mountField({
+      text: 'Default',
+      i18n: { zh: { name: '标准' }, 'zh-Hant': { description: '繁中說明' } }
+    })
+
+    await choose(wrapper, 'zh-Hant')
+    await wrapper.get('input').setValue('標準')
+
+    expect(state.text).toBe('Default')
+    expect(state.i18n).toEqual({
+      zh: { name: '标准' },
+      'zh-Hant': { name: '標準', description: '繁中說明' }
+    })
+    await choose(wrapper, 'zh')
+    expect(wrapper.get('input').element.value).toBe('标准')
   })
 
   it('returns to the default content from a language version', async () => {
@@ -187,7 +208,7 @@ describe('GroupI18nField', () => {
   it('closes the menu when clicking elsewhere', async () => {
     const { wrapper } = mountField({ text: '标准', i18n: {} })
     await trigger(wrapper).trigger('click')
-    expect(menuItems(wrapper)).toHaveLength(3)
+    expect(menuItems(wrapper)).toHaveLength(availableLocales.length + 1)
 
     document.body.click()
     await wrapper.vm.$nextTick()
