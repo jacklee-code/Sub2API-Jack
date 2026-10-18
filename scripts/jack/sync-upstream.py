@@ -39,8 +39,8 @@ def resolve_conflicts(conflicts, policy):
 
     upstream: take the official version (Jack keeps no edits there).
     union: keep every line of both sides (go.sum; CI proves the module graph).
-    regenerate: keep Jack's copy and rebuild it from the merged manifests; Jack
-    checks install with --frozen-lockfile, so a stale result fails before merge.
+    regenerate: keep Jack's copy and rebuild it from the merged inputs. Wire
+    uses readonly module metadata; pnpm is verified with --frozen-lockfile.
     """
     plan = {path: strategy(path, policy) for path in conflicts}
     if not conflicts or None in plan.values(): return None
@@ -89,7 +89,7 @@ def main():
         pr = existing[0]
         # An open failed/conflicting PR is for a human/agent to repair. Do not
         # repeatedly replace it, erase repairs, or publish an unreviewed base.
-        output(ready='false', reason='existing_pr', pr=pr['number'], blocked=str(pr['isDraft']).lower()); return
+        output(ready='false', reason='existing_pr', pr=pr['number'], blocked='true'); return
     run('git', 'switch', '-c', branch, 'origin/main')
     policy = load_policy()
     merge = run('git', 'merge', '--no-ff', '--no-edit', commit, check=False)

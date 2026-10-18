@@ -89,8 +89,9 @@ Release，透過 [sync-upstream.py](scripts/jack/sync-upstream.py) 建立 merge 
 
 - **衝突政策**：[.jack/merge-policy.json](.jack/merge-policy.json) 列出可機械解決的衝突。
   `upstream_wins` 直接採用官方版本，只列 Jack 不需保留改動的檔案（支援 glob）；
-  `regenerate` 保留 Jack 版本後重建（`pnpm-lock.yaml`，過期結果會在
-  `--frozen-lockfile` 失敗）；`union` 保留兩邊所有行（`go.sum`）。PR 說明會列出
+  `regenerate` 保留 Jack 版本後重建 `pnpm-lock.yaml` 與
+  `backend/cmd/server/wire_gen.go`。Wire 使用合併後的 provider 定義及唯讀 Go module
+  metadata 重新生成，失敗仍會阻擋同步；lockfile 過期會在 `--frozen-lockfile` 失敗；`union` 保留兩邊所有行（`go.sum`）。PR 說明會列出
   套用過的規則。只要有一個衝突不在清單內，就整次視為受阻。
 - **上游基準**：`Jack checks` 的單元／整合測試與 vitest 失敗時，會對
   `.jack/upstream.json` 記錄的官方 commit 跑同一套測試（結果按 commit 快取）。
@@ -101,7 +102,7 @@ Release，透過 [sync-upstream.py](scripts/jack/sync-upstream.py) 建立 merge 
 
 衝突或測試失敗時，現有 PR 會保留等待修復；排程不會自動解決語意衝突。
 新的 sync PR 會指派給 `jacklee-code`；衝突時該次 workflow 會失敗以觸發 GitHub
-通知，之後每次排程在草稿仍未修復時留下 warning。沒有 warning 的綠色同步執行代表沒有待處理衝突。
+通知，之後每次排程只要該版本仍有未合併 PR（包括非草稿），一律以 error 和失敗狀態提示，不再以綠色掩蓋受阻狀態。
 在原 sync 分支讀取 `.jack/upstream-conflict.md`（如有），merge 記錄的上游 commit，
 保留 Jack 功能，更新 `.jack/upstream.json`，移除已解決的衝突標記，推送並重新驗證。
 因排程會保留既有 PR，修復後由 owner／已授權 agent 完成合併。
