@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Merge official stable releases into a reviewable branch; never rewrite main."""
 import argparse
+import base64
 import fnmatch
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,8 +16,54 @@ UPSTREAM = 'Wei-Shaw/sub2api'
 REPO = 'jacklee-code/Sub2API-Jack'
 OWNER = 'jacklee-code'
 
-def run(*args, check=True):
-    return subprocess.run(args, cwd=ROOT, text=True, capture_output=True, check=check)
+def redact(text, env):
+    secrets = [env.get(name, '') for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'JACK_SYNC_PUSH_TOKEN')]
+    # Git's temporary HTTP header contains an encoded credential, not the token.
+    headers = [value for key, value in env.items() if key.startswith('GIT_CONFIG_VALUE_') and 'AUTHORIZATION:' in value.upper()]
+    for header in headers:
+        encoded = header.rsplit(' ', 1)[-1]
+        secrets.extend((header, encoded))
+        try:
+            secrets.append(base64.b64decode(encoded, validate=True).decode().split(':', 1)[-1])
+        except (ValueError, UnicodeDecodeError):
+            pass
+    for secret in sorted(filter(None, secrets), key=len, reverse=True):
+        text = text.replace(secret, '***')
+    return text
+
+def run(*args, check=True, env=None):
+    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True, env=env, check=False)
+    if result.returncode:
+        redaction_env = {**os.environ, **(env or {})}
+        print(f'Command failed with exit code {result.returncode}: {redact(str(args[0]), redaction_env)}', file=sys.stderr)
+        for stream in (result.stdout, result.stderr):
+            if stream:
+                print(redact(stream, redaction_env), end='' if stream.endswith('\n') else '\n', file=sys.stderr)
+        if check:
+            # Keep captured output available to callers, but never put credentials
+            # from command arguments into the exception's printed command.
+            raise subprocess.CalledProcessError(result.returncode, tuple(redact(str(arg), redaction_env) for arg in args), result.stdout, result.stderr)
+    return result
+
+def push_branch(branch, token):
+    env = None
+    if token:
+        env = os.environ.copy()
+        count = int(env.get('GIT_CONFIG_COUNT', '0'))
+        # Reset checkout's Authorization header, then set this push's credential.
+        # Neither the token nor header is written to disk or command arguments.
+        header = base64.b64encode(f'x-access-token:{token}'.encode()).decode()
+        for offset, value in enumerate(('', f'AUTHORIZATION: basic {header}')):
+            env[f'GIT_CONFIG_KEY_{count + offset}'] = 'http.https://github.com/.extraheader'
+            env[f'GIT_CONFIG_VALUE_{count + offset}'] = value
+        env['GIT_CONFIG_COUNT'] = str(count + 2)
+    try:
+        run('git', 'push', 'origin', branch, **({'env': env} if env else {}))
+    except subprocess.CalledProcessError as error:
+        detail = f'{error.stdout or ""}\n{error.stderr or ""}'.lower()
+        if 'workflow' in detail and any(marker in detail for marker in ('refusing to allow', 'workflow scope', 'workflows permission')):
+            print('::error::GitHub rejected an upstream workflow change. The owner must either configure the optional repository-scoped JACK_SYNC_PUSH_TOKEN secret with Contents and Workflows write permission, or push and merge the reviewed sync branch manually using an authorized owner session. See CONTRIBUTING.md; do not copy a local OAuth token into Actions.', file=sys.stderr)
+        raise
 
 def output(**values):
     if os.environ.get('GITHUB_OUTPUT'):
@@ -58,12 +106,15 @@ def resolve_conflicts(conflicts, policy):
             run('git', 'checkout', '--ours', '--', path)
             regenerate = run(*policy['regenerate'][path], check=False)
             if regenerate.returncode != 0:
-                print(regenerate.stdout, regenerate.stderr); return None
+                return None
         run('git', 'add', '--', path)
     if run('git', 'diff', '--name-only', '--diff-filter=U').stdout.strip(): return None
     return plan
 
 def main():
+    # Remove the privileged credential before any merged dependency/code runs.
+    # gh and all non-push commands keep using the regular GITHUB_TOKEN.
+    push_token = os.environ.pop('JACK_SYNC_PUSH_TOKEN', '')
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
@@ -108,14 +159,15 @@ def main():
         (ROOT / '.jack/upstream.json').write_text(json.dumps({'tag': tag, 'commit': commit}, indent=2) + '\n')
         run('git', 'add', '.jack/upstream.json')
         run('git', 'commit', '-m', f'chore: track upstream {tag}')
-    run('git', 'push', 'origin', branch)
+    push_branch(branch, push_token)
     body = f'Integrate official [{tag}]({release["html_url"]}) ({commit}) while retaining Jack features.\n\n'
     if resolved:
         body += 'Conflicts resolved by `.jack/merge-policy.json`:\n' + ''.join(f'- `{path}`: {how}\n' for path, how in sorted(resolved.items())) + '\n'
     body += 'Blocked by merge conflicts; this draft must not be merged until the integration is repaired.' if blocked else 'Jack checks must pass before automatic merge and publication. Production deployment remains manual.'
-    with tempfile.NamedTemporaryFile('w', suffix='.md') as f:
-        f.write(body); f.flush()
-        command = ['gh', 'pr', 'create', '--repo', REPO, '--base', 'main', '--head', branch, '--title', f'chore: integrate upstream {tag}', '--body-file', f.name, '--assignee', OWNER]
+    with tempfile.TemporaryDirectory() as temp:
+        body_path = Path(temp) / 'body.md'
+        body_path.write_text(body, encoding='utf-8')
+        command = ['gh', 'pr', 'create', '--repo', REPO, '--base', 'main', '--head', branch, '--title', f'chore: integrate upstream {tag}', '--body-file', str(body_path), '--assignee', OWNER]
         if blocked: command.append('--draft')
         url = run(*command).stdout.strip()
     output(ready=str(not blocked).lower(), blocked=str(blocked).lower(), sha=run('git', 'rev-parse', 'HEAD').stdout.strip(), pr=url, tag=tag)
