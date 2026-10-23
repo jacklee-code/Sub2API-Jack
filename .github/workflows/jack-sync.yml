@@ -42,6 +42,9 @@ jobs:
       - id: sync
         env:
           GH_TOKEN: ${{ github.token }}
+          # Optional owner-managed, repository-scoped Contents + Workflows write.
+          # The script removes it from child environments and uses it only to push.
+          JACK_SYNC_PUSH_TOKEN: ${{ secrets.JACK_SYNC_PUSH_TOKEN }}
         run: python3 scripts/jack/sync-upstream.py
       # Fail every blocked run, including existing non-draft PRs awaiting repair.
       - if: steps.sync.outputs.blocked == 'true'

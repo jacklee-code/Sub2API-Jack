@@ -11,7 +11,8 @@
   有寫入／管理權限的人是 `jacklee-code`。不要在一般開發工作中新增協作者或擴大權限。
 - 只有 `jacklee-code`，以及在其授權會話中使用該身份的 agent，可以推送、決定合併
   及觸發發佈。repo 自己的 GitHub Actions 使用受限 `GITHUB_TOKEN`，代為執行
-  已設定的上游同步、合併及發佈；這不代表第三方獲得發佈權。
+  已設定的上游同步、合併及發佈；同步分支的 push 可另設下述專用 token，
+  這不代表第三方獲得發佈權。
 - 公開 clone／fork 只提供原始碼，不授予本 repo、GHCR 或 VPS 的寫入權限。
   發佈與同步 workflow 限定原 repo、`main` 及 owner／內建 Actions bot 身份。
 - `main` 要求 `Jack verified` 並保持與 base 最新狀態，禁止 force push／刪除。
@@ -85,7 +86,28 @@ Release，透過 [sync-upstream.py](scripts/jack/sync-upstream.py) 建立 merge 
 唯讀檢查可使用 `python3 scripts/jack/sync-upstream.py --dry-run`。
 `.jack/upstream.json` 必須記錄實際已合併的官方 tag／commit，不能只改版本號。
 
-全程不需要人或 LLM，除非遇到下列規則無法處理的情況：
+預設使用 `GITHUB_TOKEN` 推送同步分支。當官方 release 修改 `.github/workflows/`
+時，GitHub 可能拒絕該 token 推送 workflow 檔案；`contents: write` 並不授予
+workflow 寫入權。腳本會保留失敗狀態並輸出遮罩憑證後的 Git 錯誤，若辨識到這類
+拒絕則同時提示修復方法。這是推送權限問題，不應改動衝突政策或關閉必要檢查。
+
+需要自動處理這類更新時，由 owner 在 GitHub 建立僅限
+`jacklee-code/Sub2API-Jack` 的 fine-grained PAT，授予 **Contents: Read and write**
+及 **Workflows: Read and write**，設定適當到期日，並自行儲存成 repository Actions
+secret `JACK_SYNC_PUSH_TOKEN`。未設定時仍使用原本的 `GITHUB_TOKEN`；這份文件不表示
+secret 已配置。不要複製本機 `gh` OAuth token、把 token 放入指令參數、檔案或對話。
+腳本在執行任何子程序前移除這個可選 secret，只透過 `git push` 的暫時環境設定提供
+憑證，不寫入 Git config；合併後的 dependency／regeneration 子程序不繼承它。
+PR、status、merge 及 publication dispatch 繼續使用 `GITHUB_TOKEN`。
+這是可信上游的同步流程，並非執行惡意程式碼的隔離沙盒。
+
+若不配置此 secret，由 owner／已授權 agent 在本機從最新 `origin/main` 建立同步
+分支，merge 指定官方 tag／commit、按政策修復衝突並更新 `.jack/upstream.json`，
+檢查包含 workflow 的變更後，以有 workflow 寫權的 owner session 推送並開 PR。
+通過 `Jack verified` 後以 merge commit 合併，檢查 `Publish Jack` 的實際發佈結果。
+不要把 owner session 的憑證移交給 Actions，也不要直接推送 `main`。
+
+具備所需推送權限時，流程不需要人或 LLM，除非遇到下列規則無法處理的情況：
 
 - **衝突政策**：[.jack/merge-policy.json](.jack/merge-policy.json) 列出可機械解決的衝突。
   `upstream_wins` 直接採用官方版本，只列 Jack 不需保留改動的檔案（支援 glob）；

@@ -1,4 +1,7 @@
+import base64
+from contextlib import redirect_stderr
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -13,6 +16,49 @@ sync = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync)
 
 POLICY = Path(__file__).resolve().parents[2] / '.jack/merge-policy.json'
+
+class CommandTest(unittest.TestCase):
+    def test_real_failure_logs_both_streams_and_retains_captured_output(self):
+        for check in (True, False):
+            with self.subTest(check=check):
+                log = io.StringIO()
+                command = (sys.executable, '-c', 'import sys; print("fixture stdout"); print("fixture stderr", file=sys.stderr); sys.exit(7)')
+                with redirect_stderr(log):
+                    if check:
+                        with self.assertRaises(subprocess.CalledProcessError) as raised:
+                            sync.run(*command)
+                        result = raised.exception
+                    else:
+                        result = sync.run(*command, check=False)
+                self.assertEqual(result.returncode, 7)
+                self.assertEqual(result.stdout.strip(), 'fixture stdout')
+                self.assertEqual(result.stderr.strip(), 'fixture stderr')
+                self.assertIn('fixture stdout', log.getvalue())
+                self.assertIn('fixture stderr', log.getvalue())
+
+    def test_failure_redacts_tokens_and_temporary_git_header(self):
+        token = 'fixture-token-not-a-credential'
+        encoded = base64.b64encode(f'x-access-token:{token}'.encode()).decode()
+        env = {**os.environ, 'GH_TOKEN': 'fixture-default-token', 'GIT_CONFIG_VALUE_1': f'AUTHORIZATION: basic {encoded}'}
+        log = io.StringIO()
+        with redirect_stderr(log):
+            result = sync.run(sys.executable, '-c', 'import base64,os,sys; print(os.environ["GH_TOKEN"]); print(base64.b64decode(os.environ["GIT_CONFIG_VALUE_1"].split()[-1]).decode()); print(os.environ["GIT_CONFIG_VALUE_1"], file=sys.stderr); sys.exit(1)', check=False, env=env)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(token, result.stdout)
+        self.assertIn('***', log.getvalue())
+        self.assertNotIn(token, log.getvalue())
+        self.assertNotIn('fixture-default-token', log.getvalue())
+        self.assertNotIn(encoded, log.getvalue())
+
+    def test_workflow_push_rejection_explains_fix_and_still_fails(self):
+        error = subprocess.CalledProcessError(1, ['git', 'push'], stderr='refusing to allow a GitHub App to create or update workflow .github/workflows/test.yml without workflows permission')
+        log = io.StringIO()
+        with patch.object(sync, 'run', side_effect=error), redirect_stderr(log):
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                sync.push_branch('sync/upstream-v0.2.14', '')
+        self.assertIs(raised.exception, error)
+        self.assertIn('JACK_SYNC_PUSH_TOKEN', log.getvalue())
+        self.assertIn('Contents and Workflows write', log.getvalue())
 
 class SyncTest(unittest.TestCase):
     def fixture(self, tmp, edits):
@@ -42,11 +88,16 @@ class SyncTest(unittest.TestCase):
         target = git(author, 'rev-parse', 'HEAD')
         return work, upstream, target, git
 
-    def sync(self, tmp, edits, *, existing=None, wire_fails=False):
+    def sync(self, tmp, edits, *, existing=None, wire_fails=False, push_token=''):
         work, upstream, target, git = self.fixture(tmp, edits)
         commands = []
-        def command(*args, check=True):
+        push_environments = []
+        def command(*args, check=True, env=None):
             commands.append(args)
+            self.assertNotIn('JACK_SYNC_PUSH_TOKEN', os.environ)
+            if env is not None:
+                self.assertEqual(args[:3], ('git', 'push', 'origin'))
+                push_environments.append(env)
             if args[0] == 'go':
                 self.assertEqual((work/'backend/cmd/server/wire_gen.go').read_text(), 'jack wire\n')
                 self.assertEqual((work/'backend/cmd/server/wire.go').read_text(), 'merged providers\n')
@@ -61,13 +112,23 @@ class SyncTest(unittest.TestCase):
             if args[0] == 'gh':
                 if args[1] == 'api': out = json.dumps({'tag_name':'v0.2.14','draft':False,'prerelease':False,'html_url':'https://github.com/Wei-Shaw/sub2api/releases/tag/v0.2.14'})
                 elif args[1:3] == ('pr','list'): out = json.dumps(existing or [])
-                else: out = 'https://github.com/jacklee-code/Sub2API-Jack/pull/123'
+                else:
+                    self.assertIn('Integrate official', Path(args[args.index('--body-file') + 1]).read_text())
+                    out = 'https://github.com/jacklee-code/Sub2API-Jack/pull/123'
                 return subprocess.CompletedProcess(args, 0, out, '')
             args = list(args)
             if args[:3] == ['git','fetch','https://github.com/Wei-Shaw/sub2api.git']: args[2] = str(upstream)
-            return subprocess.run(args, cwd=work, text=True, capture_output=True, check=check)
-        with patch.object(sync, 'ROOT', work), patch.object(sync, 'run', command), patch.object(sys, 'argv', ['sync-upstream.py']), patch.dict(os.environ, {'GITHUB_OUTPUT':str(Path(tmp)/'output')}):
+            return subprocess.run(args, cwd=work, text=True, capture_output=True, check=check, env=env)
+        with patch.object(sync, 'ROOT', work), patch.object(sync, 'run', command), patch.object(sys, 'argv', ['sync-upstream.py']), patch.dict(os.environ, {'GITHUB_OUTPUT':str(Path(tmp)/'output'), 'JACK_SYNC_PUSH_TOKEN': push_token}):
             sync.main()
+        self.assertEqual(len(push_environments), int(bool(push_token) and not existing))
+        if push_environments:
+            env = push_environments[0]
+            self.assertNotIn('JACK_SYNC_PUSH_TOKEN', env)
+            last = int(env['GIT_CONFIG_COUNT']) - 1
+            self.assertEqual(env[f'GIT_CONFIG_VALUE_{last - 1}'], '')
+            self.assertEqual(env[f'GIT_CONFIG_VALUE_{last}'], 'AUTHORIZATION: basic ' + base64.b64encode(f'x-access-token:{push_token}'.encode()).decode())
+            self.assertNotIn(push_token, git(work, 'config', '--local', '--list'))
         self.assertEqual((work/'custom.txt').read_text(), 'keep custom fleet feature\n')
         creates = [c for c in commands if c[:3] == ('gh','pr','create')]
         if existing:
@@ -110,6 +171,13 @@ class SyncTest(unittest.TestCase):
             self.assertEqual((work/'frontend/pnpm-lock.yaml').read_text(), 'regenerated\n')
             self.assertEqual((work/'.github/audit-exceptions.yml').read_text(), 'expires: 2\n')
             self.assertEqual((work/'backend/go.sum').read_text(), 'a v1\nb v1\nc v1\n')
+
+    def test_optional_token_is_only_given_to_push_not_regeneration_or_gh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, target, git, create, _, output = self.sync(tmp, {
+                'frontend/pnpm-lock.yaml': ('lock\n', 'jack lock\n', 'official lock\n')},
+                push_token='fixture-push-token-not-a-credential')
+            self.assertReady(work, target, git, create, output)
 
     def test_wire_regenerated_from_merged_providers(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -50,6 +50,26 @@ The `.jack/upstream.json` commit must remain an ancestor of every release. Prese
 upstream import/module paths; changing them would create unnecessary merge churn.
 Never overwrite release tags. A failed publication can resume its unpublished tag.
 
+The default sync push uses `GITHUB_TOKEN`, which can be rejected when an upstream
+release changes `.github/workflows/`; `contents: write` does not grant workflow
+write access. Failed commands log their captured stdout/stderr with credentials
+redacted and retain their nonzero status. Workflow permission rejections include
+an actionable owner-facing error.
+
+The optional repository Actions secret `JACK_SYNC_PUSH_TOKEN` supports a dedicated
+fine-grained PAT scoped only to `jacklee-code/Sub2API-Jack`, with Contents and
+Workflows read/write permission. The owner provisions and rotates it; its support
+does not mean it is configured. The script removes the secret from its environment
+before starting children and supplies it only to `git push` through temporary Git
+configuration in that process's environment. It is not written to disk or command
+arguments, and merged dependency/regeneration children do not inherit it. PR,
+status, merge and publication dispatch continue to use `GITHUB_TOKEN`. This is a
+trusted-upstream workflow, not a sandbox for malicious code. Without that secret,
+the owner can review and push the sync branch from an authorized local session,
+then follow the required checks, merge-commit and release verification procedure in
+[CONTRIBUTING.md](../CONTRIBUTING.md#官方上游更新). Never copy a local `gh` OAuth token
+into Actions or bypass branch protection to work around the rejection.
+
 ## Shared contributor workflow
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) is the common development, PR, release and
