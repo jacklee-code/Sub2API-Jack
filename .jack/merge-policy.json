@@ -9,5 +9,12 @@
   },
   "union": [
     "backend/go.sum"
+  ],
+  "module_versions": [
+    "backend/go.mod"
+  ],
+  "jack_locales": [
+    "frontend/src/i18n/locales/en/index.ts",
+    "frontend/src/i18n/locales/zh/index.ts"
   ]
 }

@@ -1,5 +1,6 @@
 import fleet from './fleet'
 import chat from './chat'
+import adminAccessKeys from './adminAccessKeys'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -11,6 +12,7 @@ import misc from './misc'
 export default {
   ...fleet,
   ...chat,
+  adminAccessKeys,
   ...landing,
   ...common,
   ...dashboard,

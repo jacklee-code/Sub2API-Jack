@@ -74,13 +74,51 @@ def output(**values):
 def load_policy():
     path = ROOT / '.jack/merge-policy.json'
     policy = json.loads(path.read_text()) if path.exists() else {}
-    return {'upstream_wins': policy.get('upstream_wins', []), 'regenerate': policy.get('regenerate', {}), 'union': policy.get('union', [])}
+    return {key: policy.get(key, {} if key == 'regenerate' else []) for key in
+            ('upstream_wins', 'regenerate', 'union', 'module_versions', 'jack_locales')}
 
 def strategy(path, policy):
     if any(fnmatch.fnmatchcase(path, pattern) for pattern in policy['upstream_wins']): return 'upstream'
     if path in policy['union']: return 'union'
     if path in policy['regenerate']: return 'regenerate'
+    if path in policy['module_versions']: return 'module_versions'
+    if path in policy['jack_locales']: return 'jack_locales'
     return None
+
+def merge_module_versions(text):
+    """Only resolve require-entry conflicts with identical paths and stable majors."""
+    pattern = re.compile(r'^<<<<<<< [^\n]*\n(.*?)^=======\n(.*?)^>>>>>>> [^\n]*\n', re.M | re.S)
+    entry = re.compile(r'^(\s+)(\S+) v(\d+)\.(\d+)\.(\d+)( // indirect)?$')
+    def resolve(match):
+        sides = [part.splitlines() for part in match.groups()]
+        if len(sides[0]) != len(sides[1]) or not sides[0]:
+            raise ValueError('dependency sets differ')
+        merged = []
+        for left, right in zip(*sides):
+            a, b = entry.fullmatch(left), entry.fullmatch(right)
+            if not a or not b or (a[2], a[3], a[6]) != (b[2], b[3], b[6]):
+                raise ValueError('not a stable same-major version conflict')
+            merged.append(max((a, b), key=lambda m: tuple(map(int, m.group(3, 4, 5))))[0])
+        return '\n'.join(merged) + '\n'
+    try:
+        result, count = pattern.subn(resolve, text)
+    except ValueError:
+        return None
+    if not count or re.search(r'^(<<<<<<<|=======|>>>>>>>|\|\|\|\|\|\|\|)', result, re.M):
+        return None
+    return result
+
+def merge_jack_locale(path):
+    """Replay only the known additive fleet/chat entrypoints over upstream."""
+    sides = [run('git', 'show', f':{stage}:{path}', check=False) for stage in (1, 2, 3)]
+    if any(side.returncode for side in sides): return None
+    base, ours, theirs = [side.stdout for side in sides]
+    imports = "import fleet from './fleet'\nimport chat from './chat'\n"
+    spreads = '  ...fleet,\n  ...chat,\n'
+    if ours.count(imports) != 1 or ours.count(spreads) != 1: return None
+    if ours.replace(imports, '', 1).replace(spreads, '', 1) != base: return None
+    if re.search(r'\b(fleet|chat)\b', theirs) or theirs.count('export default {\n') != 1: return None
+    return imports + theirs.replace('export default {\n', 'export default {\n' + spreads, 1)
 
 def resolve_conflicts(conflicts, policy):
     """Resolve conflicts covered by .jack/merge-policy.json; return the resolved paths.
@@ -102,6 +140,10 @@ def resolve_conflicts(conflicts, policy):
             if any(side.returncode != 0 for side in sides): return None
             lines = {line for side in sides for line in side.stdout.splitlines() if line}
             (ROOT / path).write_text(''.join(f'{line}\n' for line in sorted(lines)))
+        elif how in ('module_versions', 'jack_locales'):
+            merged = merge_module_versions((ROOT / path).read_text()) if how == 'module_versions' else merge_jack_locale(path)
+            if merged is None: return None
+            (ROOT / path).write_text(merged)
         else:
             run('git', 'checkout', '--ours', '--', path)
             regenerate = run(*policy['regenerate'][path], check=False)
@@ -110,6 +152,28 @@ def resolve_conflicts(conflicts, policy):
         run('git', 'add', '--', path)
     if run('git', 'diff', '--name-only', '--diff-filter=U').stdout.strip(): return None
     return plan
+
+def existing_pr_blocker(pr, branch, tag, commit):
+    """Read existing repairs without changing their branch; CI must still rerun."""
+    if pr.get('isDraft'): return 'draft'
+    if pr.get('baseRefName') != 'main' or pr.get('isCrossRepository') is not False:
+        return 'unexpected_base_or_repository'
+    if run('git', 'fetch', 'origin', f'refs/heads/{branch}', check=False).returncode:
+        return 'head_unavailable'
+    sha = run('git', 'rev-parse', 'FETCH_HEAD^{commit}').stdout.strip()
+    if sha != pr.get('headRefOid'): return 'head_changed'
+    if run('git', 'ls-tree', '--name-only', sha, '--', '.jack/upstream-conflict.md').stdout.strip():
+        return 'conflict_marker'
+    recorded = run('git', 'show', f'{sha}:.jack/upstream.json', check=False)
+    try:
+        metadata = json.loads(recorded.stdout)
+    except ValueError:
+        return 'invalid_upstream_metadata'
+    if metadata != {'tag': tag, 'commit': commit}: return 'upstream_mismatch'
+    for ancestor in (commit, 'origin/main'):
+        if run('git', 'merge-base', '--is-ancestor', ancestor, sha, check=False).returncode:
+            return 'missing_upstream_or_base_ancestry'
+    return None
 
 def main():
     # Remove the privileged credential before any merged dependency/code runs.
@@ -135,12 +199,15 @@ def main():
     run('git', 'fetch', f'https://github.com/{UPSTREAM}.git', f'refs/tags/{tag}')
     commit = run('git', 'rev-parse', 'FETCH_HEAD^{commit}').stdout.strip()
     branch = f'sync/upstream-{tag}'
-    existing = json.loads(run('gh', 'pr', 'list', '--repo', REPO, '--head', branch, '--state', 'open', '--json', 'number,isDraft,headRefOid').stdout)
+    existing = json.loads(run('gh', 'pr', 'list', '--repo', REPO, '--head', branch, '--state', 'open', '--json', 'number,isDraft,headRefOid,baseRefName,isCrossRepository').stdout)
     if existing:
         pr = existing[0]
-        # An open failed/conflicting PR is for a human/agent to repair. Do not
-        # repeatedly replace it, erase repairs, or publish an unreviewed base.
-        output(ready='false', reason='existing_pr', pr=pr['number'], blocked='true'); return
+        blocker = existing_pr_blocker(pr, branch, tag, commit)
+        if blocker:
+            output(ready='false', reason=f'existing_pr_{blocker}', pr=pr['number'], blocked='true')
+        else:
+            output(ready='true', reason='resume_existing_pr', pr=f'https://github.com/{REPO}/pull/{pr["number"]}', blocked='false', sha=pr['headRefOid'], tag=tag)
+        return
     run('git', 'switch', '-c', branch, 'origin/main')
     policy = load_policy()
     merge = run('git', 'merge', '--no-ff', '--no-edit', commit, check=False)
@@ -170,6 +237,6 @@ def main():
         command = ['gh', 'pr', 'create', '--repo', REPO, '--base', 'main', '--head', branch, '--title', f'chore: integrate upstream {tag}', '--body-file', str(body_path), '--assignee', OWNER]
         if blocked: command.append('--draft')
         url = run(*command).stdout.strip()
-    output(ready=str(not blocked).lower(), blocked=str(blocked).lower(), sha=run('git', 'rev-parse', 'HEAD').stdout.strip(), pr=url, tag=tag)
+    output(ready=str(not blocked).lower(), blocked=str(blocked).lower(), reason='merge_conflicts' if blocked else 'prepared', sha=run('git', 'rev-parse', 'HEAD').stdout.strip(), pr=url, tag=tag)
 
 if __name__ == '__main__': main()

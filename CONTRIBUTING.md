@@ -114,7 +114,7 @@ PR、status、merge 及 publication dispatch 繼續使用 `GITHUB_TOKEN`。
   `regenerate` 保留 Jack 版本後重建 `pnpm-lock.yaml` 與
   `backend/cmd/server/wire_gen.go`。Wire 使用合併後的 provider 定義及唯讀 Go module
   metadata 重新生成，失敗仍會阻擋同步；lockfile 過期會在 `--frozen-lockfile` 失敗；`union` 保留兩邊所有行（`go.sum`）。PR 說明會列出
-  套用過的規則。只要有一個衝突不在清單內，就整次視為受阻。
+  套用過的規則。`module_versions` 只處理同一批依賴、相同 major 的穩定版本衝突，保留較新版本；Go 指令、replace、預發版或依賴集合改變仍受阻。`jack_locales` 只在 Jack 相對共同基準僅增加 fleet/chat 匯入及展開時重套這些新增行；其他語意改動仍受阻。只要有一個衝突不在清單內或不符合窄範圍規則，就整次視為受阻。
 - **上游基準**：`Jack checks` 的單元／整合測試與 vitest 失敗時，會對
   `.jack/upstream.json` 記錄的官方 commit 跑同一套測試（結果按 commit 快取）。
   官方本身也失敗的測試算繼承，不擋合併與發佈，但會出現在 warning、sync PR
@@ -124,10 +124,10 @@ PR、status、merge 及 publication dispatch 繼續使用 `GITHUB_TOKEN`。
 
 衝突或測試失敗時，現有 PR 會保留等待修復；排程不會自動解決語意衝突。
 新的 sync PR 會指派給 `jacklee-code`；衝突時該次 workflow 會失敗以觸發 GitHub
-通知，之後每次排程只要該版本仍有未合併 PR（包括非草稿），一律以 error 和失敗狀態提示，不再以綠色掩蓋受阻狀態。
+通知，之後排程會保留既有 PR；草稿、殘留衝突標記、錯誤上游記錄或缺少上游／最新 main 祖先時，仍以 error 和失敗狀態提示。非草稿且通過上述檢查的同 repo、main 目標 PR，會重跑該 head commit 的完整驗證，成功後自動合併並 dispatch 發佈。排程不改寫修復分支。
 在原 sync 分支讀取 `.jack/upstream-conflict.md`（如有），merge 記錄的上游 commit，
 保留 Jack 功能，更新 `.jack/upstream.json`，移除已解決的衝突標記，推送並重新驗證。
-因排程會保留既有 PR，修復後由 owner／已授權 agent 完成合併。
+修復後將 PR 改為 ready，可等待排程續跑，或由 owner／已授權 agent 在檢查通過後以 merge commit 合併。
 
 sync PR 必須以 **merge commit** 合併（`gh pr merge --merge`，或網頁選
 "Create a merge commit"），不可 squash／rebase。squash 會讓 `main` 失去官方

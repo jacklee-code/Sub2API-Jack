@@ -33,11 +33,9 @@ container recreation; image changes and executable changes are separate actions.
    official file, `regenerate` rebuilds `pnpm-lock.yaml` and
    `backend/cmd/server/wire_gen.go` from the merged inputs (Wire uses readonly
    module metadata), and `union` keeps both
-   sides of `go.sum`. Any other conflict opens a draft assigned to
+   sides of `go.sum`. `module_versions` retains the newer stable same-major dependency version only when both conflict sides contain identical dependency paths and indirect markers. `jack_locales` reapplies only the known fleet/chat imports and spreads when these are the entire Jack delta from the merge base. Any other conflict opens a draft assigned to
    `jacklee-code` and fails that run so GitHub notifies the owner; later runs
-   fail while any sync PR for that release remains open, including non-draft PRs.
-   An existing failed or draft sync PR is
-   left for repair.
+   fail while its PR is a draft, still has conflict markers, records the wrong upstream release, or lacks the target upstream/latest main ancestry. A repaired non-draft PR targeting main in this repository resumes verification of its exact head, followed by merge and publication dispatch on success. Existing branches are never overwritten.
 5. When Go or vitest tests fail, `Jack checks` runs the same tests on the
    upstream commit in `.jack/upstream.json` (cached per commit). Failures the
    official release also has are inherited: they are allowed and listed in
