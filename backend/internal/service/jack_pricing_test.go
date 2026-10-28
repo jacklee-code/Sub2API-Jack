@@ -95,3 +95,16 @@ func TestJackPricingPreservesEditedVendorPath(t *testing.T) {
 		require.Equal(t, edited, body)
 	}
 }
+
+func TestJackPricingEditedVendorFileHotReloadsAfterOfflineStartup(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.MkdirAll(filepath.Dir(jackDefaultPricingPath), 0755))
+	require.NoError(t, os.MkdirAll("data", 0755))
+	svc := NewPricingService(&config.Config{Pricing: config.PricingConfig{FallbackFile: jackDefaultPricingPath, DataDir: "data"}}, nil)
+	// Begin without an image resource or remote cache, using bundled defaults.
+	require.NoError(t, svc.useFallbackPricing())
+	require.NoError(t, os.WriteFile(jackDefaultPricingPath, []byte(`{"operator-model":{"input_cost_per_token":0.09,"output_cost_per_token":0.1}}`), 0644))
+	require.NoError(t, svc.reloadCustomPricingLayers())
+	require.Len(t, svc.pricingData, 1)
+	require.Equal(t, 0.09, svc.pricingData["operator-model"].InputCostPerToken)
+}

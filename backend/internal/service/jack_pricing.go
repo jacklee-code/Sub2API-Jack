@@ -14,7 +14,7 @@ import (
 // defaults follow the binary's bundle; edited/mounted operator files remain live.
 const jackBundledPricingPath = "resources/model-pricing/model_prices_and_context_window.json"
 
-func isJackBundledPricingFile(path string) bool {
+func isJackDefaultPricingPath(path string) bool {
 	if path == "" {
 		return false
 	}
@@ -33,7 +33,7 @@ func readJackPricingFile(path string) ([]byte, error) {
 
 func jackPricingSource(path string) ([]byte, bool, error) {
 	body, err := os.ReadFile(path)
-	if !isJackBundledPricingFile(path) {
+	if !isJackDefaultPricingPath(path) {
 		return body, false, err
 	}
 	if os.IsNotExist(err) {
@@ -49,15 +49,13 @@ func jackPricingSource(path string) ([]byte, bool, error) {
 	return body, false, nil
 }
 
-// A fallback-only startup deliberately creates no remote cache. Rebuild from the
-// bundled primary layer so the current binary's defaults and custom overrides can
-// still be hot-reloaded while the remote catalog is unavailable.
+// A bundled fallback-only startup creates no remote cache. Rebuild from the
+// effective fallback so defaults, edits to the vendor path and custom overrides
+// can still be hot-reloaded while the remote catalog is unavailable.
 func (s *PricingService) readJackPricingBase(path string) ([]byte, error) {
 	body, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		if fallback, bundled, sourceErr := jackPricingSource(s.cfg.Pricing.FallbackFile); sourceErr == nil && bundled {
-			return fallback, nil
-		}
+	if os.IsNotExist(err) && isJackDefaultPricingPath(s.cfg.Pricing.FallbackFile) {
+		return readJackPricingFile(s.cfg.Pricing.FallbackFile)
 	}
 	return body, err
 }

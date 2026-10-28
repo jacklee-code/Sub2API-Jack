@@ -18,8 +18,8 @@ def git(*args):
 
 def runtime_id():
     paths = [ROOT / 'Dockerfile.goreleaser', ROOT / 'deploy/docker-entrypoint.sh', ROOT / 'deploy/jack/entrypoint.sh']
-    # Only these data are compiled into the binary. New external resources must
-    # still change the image fingerprint until their consumers also embed them.
+    # Bundled pricing and its documentation are not image compatibility inputs.
+    # New external resources still change it until their consumers embed them.
     bundled = {'model-pricing/model_prices_and_context_window.json', 'model-pricing/README.md'}
     resources = ROOT / 'backend/resources'
     paths += sorted(p for p in resources.rglob('*') if p.is_file()
