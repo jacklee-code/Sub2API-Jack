@@ -90,6 +90,16 @@ class SyncTest(unittest.TestCase):
 
     def sync(self, tmp, edits, *, existing=None, wire_fails=False, push_token=''):
         work, upstream, target, git = self.fixture(tmp, edits)
+        if existing == 'repaired':
+            git(work, 'fetch', str(upstream), 'main')
+            git(work, 'merge', '--no-ff', '--no-edit', target)
+            (work/'.jack/upstream.json').write_text(json.dumps({'tag': 'v0.2.14', 'commit': target}))
+            git(work, 'add', '.'); git(work, 'commit', '-m', 'repair')
+            sha = git(work, 'rev-parse', 'HEAD')
+            git(work, 'push', 'origin', 'HEAD:refs/heads/sync/upstream-v0.2.14')
+            git(work, 'checkout', '--detach', 'origin/main')
+            existing = [{'number': 28, 'isDraft': False, 'headRefOid': sha,
+                         'baseRefName': 'main', 'isCrossRepository': False}]
         commands = []
         push_environments = []
         def command(*args, check=True, env=None):
@@ -172,6 +182,45 @@ class SyncTest(unittest.TestCase):
             self.assertEqual((work/'.github/audit-exceptions.yml').read_text(), 'expires: 2\n')
             self.assertEqual((work/'backend/go.sum').read_text(), 'a v1\nb v1\nc v1\n')
 
+    def test_dependency_version_conflicts_keep_newer_versions_on_both_sides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = 'module example.test/app\n\ngo 1.27.3\n\nrequire (\n'
+            suffix = ')\n'
+            work, target, git, create, _, output = self.sync(tmp, {
+                'backend/go.mod': tuple(prefix + value + suffix for value in (
+                    '\tgolang.org/x/crypto v0.56.0\n\tgolang.org/x/image v0.41.0\n',
+                    '\tgolang.org/x/crypto v0.57.0\n\tgolang.org/x/image v0.45.0\n',
+                    '\tgolang.org/x/crypto v0.58.0\n\tgolang.org/x/image v0.41.0\n'))})
+            self.assertReady(work, target, git, create, output)
+            self.assertIn('crypto v0.58.0', (work/'backend/go.mod').read_text())
+            self.assertIn('image v0.45.0', (work/'backend/go.mod').read_text())
+
+    def test_dependency_directive_conflict_stays_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _, _, create, _, output = self.sync(tmp, {
+                'backend/go.mod': ('go 1.27.1\n', 'go 1.27.3\n', 'go 1.28.0\n')})
+            self.assertIn('--draft', create)
+            self.assertIn('blocked=true', output)
+
+    def test_locale_entry_additions_preserve_jack_and_upstream(self):
+        base = "import common from './common'\n\nexport default {\n  ...common,\n}\n"
+        jack = "import fleet from './fleet'\nimport chat from './chat'\n" + base.replace('export default {', 'export default {\n  ...fleet,\n  ...chat,')
+        official = "import adminAccessKeys from './adminAccessKeys'\n" + base.replace('export default {', 'export default {\n  adminAccessKeys,')
+        with tempfile.TemporaryDirectory() as tmp:
+            work, target, git, create, _, output = self.sync(tmp, {
+                'frontend/src/i18n/locales/en/index.ts': (base, jack, official)})
+            self.assertReady(work, target, git, create, output)
+            merged = (work/'frontend/src/i18n/locales/en/index.ts').read_text()
+            for value in ['...fleet,', '...chat,', '  adminAccessKeys,', '...common,']:
+                self.assertIn(value, merged)
+
+    def test_locale_semantic_edits_stay_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, _, create, _, output = self.sync(tmp, {
+                'frontend/src/i18n/locales/en/index.ts': ('original\n', 'custom changes\n', 'upstream changes\n')})
+            self.assertIn('--draft', create)
+            self.assertIn('blocked=true', output)
+
     def test_optional_token_is_only_given_to_push_not_regeneration_or_gh(self):
         with tempfile.TemporaryDirectory() as tmp:
             work, target, git, create, _, output = self.sync(tmp, {
@@ -197,7 +246,39 @@ class SyncTest(unittest.TestCase):
             self.assertIn('blocked=true', output)
             self.assertEqual((work/'backend/cmd/server/wire_gen.go').read_text(), 'jack wire\n')
 
-    def test_existing_pr_always_reports_blocked_without_overwriting_repairs(self):
+    def test_repaired_existing_pr_resumes_only_with_verified_ancestry_and_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, upstream, target, git = self.fixture(tmp, {'official.txt': ('old\n', None, 'new\n')})
+            git(work, 'fetch', str(upstream), 'main')
+            git(work, 'merge', '--no-ff', '--no-edit', target)
+            (work/'.jack/upstream.json').write_text(json.dumps({'tag': 'v0.2.14', 'commit': target}))
+            git(work, 'add', '.jack/upstream.json'); git(work, 'commit', '-m', 'record repair')
+            branch = 'sync/upstream-v0.2.14'
+            git(work, 'push', 'origin', 'HEAD:refs/heads/' + branch)
+            pr = {'number': 28, 'isDraft': False, 'headRefOid': git(work, 'rev-parse', 'HEAD'),
+                  'baseRefName': 'main', 'isCrossRepository': False}
+            with patch.object(sync, 'ROOT', work):
+                self.assertIsNone(sync.existing_pr_blocker(pr, branch, 'v0.2.14', target))
+                for changes in ({'isDraft': True}, {'baseRefName': 'other'}, {'isCrossRepository': True}, {'headRefOid': '0' * 40}):
+                    self.assertIsNotNone(sync.existing_pr_blocker({**pr, **changes}, branch, 'v0.2.14', target))
+                self.assertIsNotNone(sync.existing_pr_blocker(pr, branch, 'v0.2.15', target))
+                (work/'.jack/upstream-conflict.md').write_text('still blocked')
+                git(work, 'add', '.'); git(work, 'commit', '-m', 'still blocked')
+                git(work, 'push', 'origin', 'HEAD:refs/heads/' + branch)
+                pr['headRefOid'] = git(work, 'rev-parse', 'HEAD')
+                self.assertIsNotNone(sync.existing_pr_blocker(pr, branch, 'v0.2.14', target))
+            self.assertEqual(git(work, 'status', '--porcelain'), '')
+
+    def test_main_resumes_repaired_pr_without_push_or_recreating_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self.sync(tmp, {'official.txt': ('old\n', None, 'new\n')}, existing='repaired')
+            self.assertIn('ready=true', output)
+            self.assertIn('blocked=false', output)
+            self.assertIn('reason=resume_existing_pr', output)
+            self.assertIn('pr=https://github.com/jacklee-code/Sub2API-Jack/pull/28', output)
+            self.assertRegex(output, r'sha=[0-9a-f]{40}')
+
+    def test_unrepaired_existing_pr_reports_blocked_without_overwriting_repairs(self):
         for draft in (True, False):
             with self.subTest(draft=draft), tempfile.TemporaryDirectory() as tmp:
                 output = self.sync(tmp, {'official.txt': ('old\n', None, 'new\n')},
