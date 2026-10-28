@@ -292,8 +292,30 @@ silently revert it. The image-switch script explicitly replaces both image and
 persistent executable, including when intentionally selecting an older image.
 
 Panel updates require a same-runtime fingerprint and a mandatory SHA-256 checksum.
-The fingerprint covers the upstream Docker runtime definition, entrypoints and
-runtime resources. A changed runtime requires `switch-image.sh`. The panel saves
+The `v2-` runtime fingerprint covers the Docker runtime definition, entrypoints and
+external runtime resources. The default model-pricing JSON is embedded in the Go
+binary (`backend/resources/jack_embedded.go`), so price/catalog changes travel with
+binary updates and rollbacks without changing this fingerprint. Its README and Go
+source files are excluded too; any newly added external resource still changes it.
+A changed image requirement continues to require `switch-image.sh`.
+
+The shipped fallback path (`./resources/model-pricing/model_prices_and_context_window.json`,
+or its absolute equivalent) uses the binary's embedded data when the image file is
+missing or unmodified. Release packaging writes a sibling `.jack-sha256` digest to
+identify the image's original data even after the binary advances. Edited or mounted
+files that differ from that digest, and custom paths, keep their file-based behavior.
+Remote catalog precedence, configured overrides and custom-file hot reload are kept.
+Bundled fallback-only startup does not write a remote catalog cache: an old bundled
+cache would otherwise outrank a later binary's data after update/rollback.
+
+Migration from the legacy fingerprint (including v0.2.18-jack.1 and v0.2.19-jack.1)
+requires one image switch to a release using the `v2-` scheme. Old updaters cannot
+interpret the new compatibility boundary. Do not rewrite old manifests or force
+matching IDs. After that switch, bundled price updates can use the panel. Rollback
+to a legacy-fingerprint release still requires the corresponding image; compatible
+panel rollback retains the existing upstream-base/schema-epoch restrictions.
+
+The panel saves
 a database dump, executable and available config under
 `/app/data/jack-runtime/update-backups/` before replacing the executable. These
 sensitive local backups use private permissions; include them in existing encrypted

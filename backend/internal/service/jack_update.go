@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// JackRuntimeID fingerprints image dependencies/resources at build time. A binary
-// update is offered only when the installed runtime can execute that release.
+// JackRuntimeID fingerprints image dependencies and external resources at build
+// time. Bundled pricing travels with the binary; image changes still block it.
 var JackRuntimeID string
 
 type JackReleaseManifest struct {
