@@ -508,7 +508,7 @@ func (s *PricingService) customPricingFilesFingerprint() string {
 	for _, path := range []string{s.cfg.Pricing.FallbackFile, s.cfg.Pricing.OverrideFile} {
 		var body []byte
 		if p := strings.TrimSpace(path); p != "" {
-			body, _ = os.ReadFile(p)
+			body, _ = readJackPricingFile(p)
 		}
 		var size [8]byte
 		binary.BigEndian.PutUint64(size[:], uint64(len(body)))
@@ -526,7 +526,7 @@ func (s *PricingService) validateCustomPricingFiles() error {
 		if p == "" {
 			continue
 		}
-		body, err := os.ReadFile(p)
+		body, err := readJackPricingFile(p)
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -572,7 +572,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 			return fmt.Errorf("validate custom pricing files: %w", validateErr)
 		}
 		before := s.customPricingFilesFingerprint()
-		body, readErr := os.ReadFile(pricingFile)
+		body, readErr := s.readJackPricingBase(pricingFile)
 		if readErr != nil {
 			return fmt.Errorf("read file failed: %w", readErr)
 		}
@@ -1073,7 +1073,7 @@ func (s *PricingService) buildPricingData(body []byte) (map[string]*LiteLLMModel
 
 // loadPricingData 从本地文件加载价格数据
 func (s *PricingService) loadPricingData(filePath string) error {
-	data, err := os.ReadFile(filePath)
+	data, err := readJackPricingFile(filePath)
 	if err != nil {
 		return fmt.Errorf("read file failed: %w", err)
 	}
@@ -1112,7 +1112,7 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 	if s == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Pricing.FallbackFile) == "" {
 		return data
 	}
-	fallbackBody, err := os.ReadFile(s.cfg.Pricing.FallbackFile)
+	fallbackBody, err := readJackPricingFile(s.cfg.Pricing.FallbackFile)
 	if err != nil {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Fallback merge skipped: %v", err)
 		return data
@@ -1167,6 +1167,11 @@ func warnDroppedLongContextLadders(old, next map[string]*LiteLLMModelPricing) {
 // useFallbackPricing 使用回退价格文件
 func (s *PricingService) useFallbackPricing() error {
 	fallbackFile := s.cfg.Pricing.FallbackFile
+	if _, bundled, err := jackPricingSource(fallbackFile); err == nil && bundled {
+		// Do not persist bundled defaults as a remote catalog: that stale copy
+		// would outrank a later binary's defaults during upgrade or rollback.
+		return s.loadPricingData(fallbackFile)
+	}
 
 	if _, err := os.Stat(fallbackFile); os.IsNotExist(err) {
 		return fmt.Errorf("fallback file not found: %s", fallbackFile)

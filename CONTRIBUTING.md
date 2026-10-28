@@ -148,8 +148,12 @@ commit 作為祖先，下次同步仍從舊 tag 比對並重現同樣衝突；�
 
 - 後台左上角更新來源為 **Sub2API-Jack 自己的 Release**。同 runtime 可更新持久化
   執行檔 `/app/data/jack-runtime/sub2api`；一般容器重建會保留該版本。
-- runtime 指紋改變時，在真正的 Compose 部署目錄使用
+- 內建模型價目表編入執行檔，隨在線更新、校驗、備份與回退一起變更；它不再
+  改變 `v2-` runtime 指紋。自訂定價檔與遠端價目表保留既有優先次序。
+- Docker 依賴、啟動腳本或未內嵌資源改變時，在真正的 Compose 部署目錄使用
   [switch-image.sh](deploy/jack/switch-image.sh) 與選定 Jack 版本。
+  舊指紋版本（包括 v0.2.18-jack.1、v0.2.19-jack.1）首次轉入 `v2-` 機制也需
+  換一次映像；不得改寫舊 Release manifest 或偽造指紋繞過檢查。
 - 更新前確認備份、實際版本與部署位置；更新後檢查健康、成員、期限、額度及 API keys。
   保留校驗、manifest、runtime 相容性與備份檢查，不改用會移除 Jack 功能的官方映像。
 - 回退受版本相容性限制；資料庫還原會回溯寫入，必須依

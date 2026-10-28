@@ -18,11 +18,16 @@ def git(*args):
 
 def runtime_id():
     paths = [ROOT / 'Dockerfile.goreleaser', ROOT / 'deploy/docker-entrypoint.sh', ROOT / 'deploy/jack/entrypoint.sh']
-    paths += sorted(p for p in (ROOT / 'backend/resources').rglob('*') if p.is_file())
+    # Only these data are compiled into the binary. New external resources must
+    # still change the image fingerprint until their consumers also embed them.
+    bundled = {'model-pricing/model_prices_and_context_window.json', 'model-pricing/README.md'}
+    resources = ROOT / 'backend/resources'
+    paths += sorted(p for p in resources.rglob('*') if p.is_file()
+                    and p.suffix != '.go' and p.relative_to(resources).as_posix() not in bundled)
     h = hashlib.sha256()
     for path in paths:
         h.update(path.relative_to(ROOT).as_posix().encode() + b'\0' + path.read_bytes() + b'\0')
-    return h.hexdigest()
+    return 'v2-' + h.hexdigest()
 
 def metadata(version):
     match = VERSION.fullmatch(version)
@@ -52,6 +57,10 @@ def package(version, arch, binary):
     shutil.copy2(binary, context / 'sub2api')
     for folder in ['deploy', 'backend/resources']:
         shutil.copytree(ROOT / folder, context / folder, dirs_exist_ok=True)
+    # Let newer binaries distinguish the old image's vendor catalog from a
+    # user-edited or bind-mounted fallback at the same path.
+    pricing = context / 'backend/resources/model-pricing/model_prices_and_context_window.json'
+    pricing.with_suffix(pricing.suffix + '.jack-sha256').write_text(hashlib.sha256(pricing.read_bytes()).hexdigest() + '\n')
     dockerfile = (ROOT / 'Dockerfile.goreleaser').read_text()
     dockerfile += '\nCOPY deploy/jack/entrypoint.sh /app/jack-entrypoint.sh\nRUN chmod 755 /app/jack-entrypoint.sh\nENTRYPOINT ["/app/jack-entrypoint.sh"]\nCMD []\n'
     (context / 'Dockerfile').write_text(dockerfile)
