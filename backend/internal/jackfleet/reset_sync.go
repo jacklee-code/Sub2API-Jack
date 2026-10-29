@@ -187,7 +187,7 @@ func (s *Store) Observe(ctx context.Context, account int64, o Observation) error
 			v.Baseline = &o
 			v.Candidate = nil
 		} else if v.Candidate != nil {
-			if v.Status != "confirming" && o.Used >= 5 {
+			if v.Candidate.Kind == "early" && v.Status != "confirming" && o.Used >= 5 {
 				v.Baseline = &o
 				v.Candidate = nil
 			} else if o.Source != "query" {

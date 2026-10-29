@@ -322,4 +322,25 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	require.WithinDuration(t, now, *loaded.WeeklyWindowStart, time.Millisecond)
 	require.Equal(t, expiry.Unix(), loaded.ExpiresAt.Unix())
 	require.Equal(t, sub, loaded.ID)
+
+	// A failed confirmation query must not erase a scheduled rollover. A later
+	// successful query confirms its new deadline even after usage grows above 5%.
+	now = now.Add(time.Second)
+	base.At, base.ResetAt, base.Used = now, now.Add(time.Second), 80
+	base.Identity = jackfleet.SourceIdentity(otherAccount, "replacement", "", "")
+	_, err = store.Mutate(ctx, user, "enable-scheduled-retry", jackfleet.Input{Action: "reset_sync", FleetID: id, SyncEnabled: true, SyncAccountID: otherAccount, SyncBaseline: &base, Versions: versions()})
+	require.NoError(t, err)
+	now = now.Add(2 * time.Second)
+	rolled := base
+	rolled.At, rolled.ResetAt, rolled.Used, rolled.Source = now, now.Add(7*24*time.Hour), 15, "request"
+	require.NoError(t, store.Observe(ctx, otherAccount, rolled))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, otherAccount, job)
+	require.NoError(t, store.FinishCheck(ctx, otherAccount, "UPSTREAM_QUERY_FAILED"))
+	checkUsage(7)
+	now = now.Add(time.Millisecond)
+	rolled.At, rolled.Used, rolled.Source = now, 16, "query"
+	require.NoError(t, store.Observe(ctx, otherAccount, rolled))
+	checkUsage(0)
 }
