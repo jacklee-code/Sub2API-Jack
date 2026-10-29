@@ -187,7 +187,15 @@ func (s *Store) Observe(ctx context.Context, account int64, o Observation) error
 			v.Baseline = &o
 			v.Candidate = nil
 		} else if v.Candidate != nil {
-			if confirmsReset(*v.Candidate, o) {
+			if v.Candidate.Kind == "early" && v.Status != "confirming" && o.Used >= 5 {
+				v.Baseline = &o
+				v.Candidate = nil
+			} else if o.Source != "query" {
+				// Keep the candidate and its observation watermark while its fresh
+				// query is in flight. Busy request traffic must neither confirm the
+				// reset nor make that query look out of order on arrival.
+				continue
+			} else if confirmsReset(*v.Candidate, o) {
 				key := "fleet-sync:" + uuid.NewString()
 				if e = s.resetEvent(ctx, tx, id, account, key, v.Candidate.Kind, &v.Candidate.Before, &o, now); e != nil {
 					return e
@@ -195,21 +203,16 @@ func (s *Store) Observe(ctx context.Context, account int64, o Observation) error
 				v.Candidate = nil
 				v.Baseline = &o
 				status = "synced"
-			} else if o.At.Sub(v.Candidate.First.At) < time.Minute {
-				status = "confirming"
-				if e = queueResetJob(ctx, tx, account, v.Candidate.First.At.Add(time.Minute)); e != nil {
-					return e
-				}
 			} else {
-				// Unconfirmed samples are not promoted into a fresh baseline, which would
-				// hide an early reset from the next authenticated read.
-				v.Candidate = nil
+				// Retain a rejected candidate rather than querying repeatedly for
+				// every low request header. A later explicit query may confirm it,
+				// or a new high observation can establish a new baseline.
 				status = "needs_review"
 			}
 		} else if kind := detectReset(*v.Baseline, o); kind != "" {
 			v.Candidate = &ResetCandidate{Before: *v.Baseline, First: o, Kind: kind}
 			status = "confirming"
-			if e = queueResetJob(ctx, tx, account, o.At.Add(time.Minute)); e != nil {
+			if e = queueResetJob(ctx, tx, account, now); e != nil {
 				return e
 			}
 		} else {
@@ -230,7 +233,7 @@ func queueResetJob(ctx context.Context, tx *sql.Tx, account int64, due time.Time
 }
 func (s *Store) QueueQuotaCheck(ctx context.Context, subscription int64) error {
 	// No upstream work for invalid subscriptions, key quotas or unauthenticated traffic.
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO jack_fleet_reset_jobs(account_id,due_at) SELECT r.account_id,GREATEST($2::timestamptz,COALESCE((r.candidate->'first'->>'at')::timestamptz+interval '60 seconds',$2::timestamptz)) FROM jack_fleet_reset_sync r JOIN jack_fleets f ON f.id=r.fleet_id JOIN jack_fleet_members m ON m.fleet_id=f.id JOIN user_subscriptions s ON s.id=m.subscription_id WHERE m.subscription_id=$1 AND m.active AND r.enabled AND f.archived_at IS NULL AND s.deleted_at IS NULL AND s.status='active' AND s.expires_at>$2 AND (r.observed_at IS NULL OR r.observed_at<=$2::timestamptz-interval '60 seconds' OR r.candidate IS NOT NULL AND r.candidate<>'null'::jsonb) ON CONFLICT(account_id) DO UPDATE SET due_at=LEAST(jack_fleet_reset_jobs.due_at,EXCLUDED.due_at)`, subscription, s.Now())
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO jack_fleet_reset_jobs(account_id,due_at) SELECT r.account_id,$2::timestamptz FROM jack_fleet_reset_sync r JOIN jack_fleets f ON f.id=r.fleet_id JOIN jack_fleet_members m ON m.fleet_id=f.id JOIN user_subscriptions s ON s.id=m.subscription_id WHERE m.subscription_id=$1 AND m.active AND r.enabled AND f.archived_at IS NULL AND s.deleted_at IS NULL AND s.status='active' AND s.expires_at>$2 AND (r.observed_at IS NULL OR r.observed_at<=$2::timestamptz-interval '60 seconds' OR r.candidate IS NOT NULL AND r.candidate<>'null'::jsonb) ON CONFLICT(account_id) DO UPDATE SET due_at=LEAST(jack_fleet_reset_jobs.due_at,EXCLUDED.due_at)`, subscription, s.Now())
 	return err
 }
 
@@ -238,7 +241,10 @@ func (s *Store) QueueQuotaCheck(ctx context.Context, subscription int64) error {
 func (s *Store) ClaimCheck(ctx context.Context) (int64, error) {
 	now := s.Now()
 	var id int64
-	err := s.DB.QueryRowContext(ctx, `UPDATE jack_fleet_reset_jobs SET lease_until=$1::timestamptz+interval '30 seconds',last_attempt_at=$1,due_at='infinity' WHERE account_id=(SELECT j.account_id FROM jack_fleet_reset_jobs j WHERE (due_at<=$1 OR lease_until<=$1) AND (lease_until IS NULL OR lease_until<=$1) AND (last_attempt_at IS NULL OR last_attempt_at<=$1::timestamptz-interval '60 seconds') AND EXISTS(SELECT 1 FROM jack_fleet_reset_sync r JOIN jack_fleets f ON f.id=r.fleet_id JOIN account_groups ag ON ag.group_id=f.group_id AND ag.account_id=r.account_id JOIN accounts a ON a.id=r.account_id WHERE r.account_id=j.account_id AND r.enabled AND f.archived_at IS NULL AND a.deleted_at IS NULL AND a.platform='openai' AND a.type='oauth' AND a.parent_account_id IS NULL AND a.status='active') ORDER BY due_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING account_id`, now).Scan(&id)
+	// A detected reset bypasses the ordinary quota-check cooldown. The lease
+	// still coalesces concurrent signals; failed/mismatched reads leave the
+	// confirming state, so they cannot create a rapid retry loop.
+	err := s.DB.QueryRowContext(ctx, `UPDATE jack_fleet_reset_jobs SET lease_until=$1::timestamptz+interval '30 seconds',last_attempt_at=$1,due_at='infinity' WHERE account_id=(SELECT j.account_id FROM jack_fleet_reset_jobs j WHERE (due_at<=$1 OR lease_until<=$1) AND (lease_until IS NULL OR lease_until<=$1) AND (last_attempt_at IS NULL OR last_attempt_at<=$1::timestamptz-interval '60 seconds' OR EXISTS(SELECT 1 FROM jack_fleet_reset_sync r JOIN jack_fleets f ON f.id=r.fleet_id WHERE r.account_id=j.account_id AND r.enabled AND f.archived_at IS NULL AND r.status='confirming' AND r.candidate IS NOT NULL AND r.candidate<>'null'::jsonb)) AND EXISTS(SELECT 1 FROM jack_fleet_reset_sync r JOIN jack_fleets f ON f.id=r.fleet_id JOIN account_groups ag ON ag.group_id=f.group_id AND ag.account_id=r.account_id JOIN accounts a ON a.id=r.account_id WHERE r.account_id=j.account_id AND r.enabled AND f.archived_at IS NULL AND a.deleted_at IS NULL AND a.platform='openai' AND a.type='oauth' AND a.parent_account_id IS NULL AND a.status='active') ORDER BY due_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING account_id`, now).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}

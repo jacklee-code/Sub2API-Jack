@@ -110,23 +110,35 @@ Normal gateway response snapshots (including the existing WebSocket/header
 paths), genuine admin usage reads and successful manual reset-credit operations
 feed the Jack observer. There is no periodic upstream polling. A confirmed
 seven-day rollover, or an early drop from at least 5% used to at most 1%, clears
-current members' daily/weekly/monthly subscription counters. Detection needs a
-second fresh observation at least 60 seconds later; a persisted one-shot check
-fills in when normal traffic does not provide it. The same upstream deadline may
+current members' daily/weekly/monthly subscription counters. Detection queues and
+wakes an immediate usage-only confirmation query, without a fixed waiting period.
+An early drop is confirmed when the query differs from the first low sample by
+at most two percentage points and still lies below the pre-reset usage. Both early
+and scheduled resets require the same identity/plan; scheduled resets also require
+an upstream reset deadline within one minute of the candidate. Request headers
+alone cannot confirm a reset,
+and busy request traffic cannot overtake an in-flight confirmation's timestamp.
+The durable one-shot job also survives restart. The same upstream deadline may
 contain multiple early resets. Missing windows, stale/out-of-order observations,
 identity/plan changes and computed display values never grant quota.
 
 An authenticated request rejected by a managed subscription's quota can enqueue
 an asynchronous usage-only check. The request retains its ordinary quota error;
 a subsequent retry works after synchronization. Jobs coalesce by source account,
-with a database-enforced 60-second query cooldown and restartable leases. Idle
-accounts and API-key-level limits do not create queries. Failed reads retain
+with a database-enforced 60-second cooldown for ordinary quota checks and
+restartable leases. Reset confirmation bypasses that cooldown; repeated signals
+share the same job and lease. A mismatched confirmation retains usage and enters
+`needs_review`, without repeatedly querying for every low request snapshot. A later
+explicit query can confirm it, or a new high sample can establish a new baseline.
+Idle accounts and API-key-level limits do not create queries. Failed reads retain
 usage and show an unavailable state until another event permits a retry.
 
 Manual reset credits are an explicit trigger independent of the seven-day
-percentage heuristic: an upstream `ok`/`success` with `windows_reset > 0` clears
-all three local counters. The admin endpoint accepts `Idempotency-Key`; the panel
-retains the key in session storage across a lost response. The database records
+percentage heuristic: an upstream `reset` (or the supported `ok`/`success` aliases) with
+`windows_reset > 0` clears all three local counters. A zero-window or unknown
+outcome does not reset usage. Completed redemption operations are never replayed
+to retroactively clear later usage. The admin endpoint accepts `Idempotency-Key`;
+the panel retains the key in session storage across a lost response. The database records
 the redemption id, reference-account identity and target fleet generations before
 calling upstream. Ambiguous outcomes retry the same redemption id, including
 after restart; a changed account identity stops recovery. Confirmed outcomes and

@@ -36,6 +36,7 @@ type FleetResetSyncService struct {
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	queue      chan fleetObservationInput
+	checkWake  chan struct{}
 	mu         sync.Mutex
 	interested map[int64]bool
 	sampled    map[int64]jackfleet.Observation
@@ -52,7 +53,7 @@ func NewFleetResetSyncService(store *jackfleet.Store, quota *OpenAIQuotaService,
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &FleetResetSyncService{store: store, quota: quota, accounts: quota.accountRepo, flush: flush, ctx: ctx, cancel: cancel, queue: make(chan fleetObservationInput, 256), interested: map[int64]bool{}, sampled: map[int64]jackfleet.Observation{}, blocked: map[int64]time.Time{}}
+	s := &FleetResetSyncService{store: store, quota: quota, accounts: quota.accountRepo, flush: flush, ctx: ctx, cancel: cancel, queue: make(chan fleetObservationInput, 256), checkWake: make(chan struct{}, 1), interested: map[int64]bool{}, sampled: map[int64]jackfleet.Observation{}, blocked: map[int64]time.Time{}}
 	s.RefreshTargets(ctx)
 	fleetResetRegistry.Lock()
 	fleetResetRegistry.service = s
@@ -254,6 +255,8 @@ func (s *FleetResetSyncService) observe(in fleetObservationInput) {
 	if in.blockedSubscription > 0 {
 		if err := s.store.QueueQuotaCheck(ctx, in.blockedSubscription); err != nil {
 			slog.Warn("fleet_reset_check_enqueue_failed", "subscription_id", in.blockedSubscription)
+		} else {
+			s.wakeCheck()
 		}
 		return
 	}
@@ -269,8 +272,9 @@ func (s *FleetResetSyncService) observe(in fleetObservationInput) {
 	last, known := s.sampled[in.account]
 	// Keep abrupt falls/window transitions despite the regular-sample throttle.
 	earlyReset := last.Used >= 5 && o.Used <= 1
+	newHighBaseline := last.Used < 5 && o.Used >= 5
 	newWindow := !o.At.Before(last.ResetAt) && o.ResetAt.After(last.ResetAt.Add(time.Minute))
-	suppress := in.quota == nil && known && o.Identity == last.Identity && o.Plan == last.Plan && o.At.Sub(last.At) < time.Minute && !earlyReset && !newWindow
+	suppress := in.quota == nil && known && o.Identity == last.Identity && o.Plan == last.Plan && o.At.Sub(last.At) < time.Minute && !earlyReset && !newHighBaseline && !newWindow
 	if !suppress {
 		s.sampled[in.account] = *o
 	}
@@ -282,7 +286,14 @@ func (s *FleetResetSyncService) observe(in fleetObservationInput) {
 		slog.Warn("fleet_reset_observation_failed", "account_id", in.account)
 		return
 	}
+	s.wakeCheck()
 	s.flush(ctx)
+}
+func (s *FleetResetSyncService) wakeCheck() {
+	select {
+	case s.checkWake <- struct{}{}:
+	default:
+	}
 }
 func (s *FleetResetSyncService) runJobs() {
 	defer s.wg.Done()
@@ -294,6 +305,8 @@ func (s *FleetResetSyncService) runJobs() {
 		select {
 		case <-s.ctx.Done():
 			return
+		case <-s.checkWake:
+			s.runCheck(s.ctx)
 		case <-refresh.C:
 			s.RefreshTargets(s.ctx)
 		case <-ticker.C:
@@ -389,6 +402,10 @@ func (s *FleetResetSyncService) runPending(ctx context.Context) {
 	if op, err := s.store.ClaimCredit(ctx); err == nil && op != nil {
 		_, _ = s.executeCredit(ctx, op)
 	}
+	s.runCheck(ctx)
+}
+
+func (s *FleetResetSyncService) runCheck(ctx context.Context) {
 	account, err := s.store.ClaimCheck(ctx)
 	if err != nil || account == 0 {
 		return
@@ -401,6 +418,9 @@ func (s *FleetResetSyncService) runPending(ctx context.Context) {
 		code = "OBSERVATION_SAVE_FAILED"
 	}
 	_ = s.store.FinishCheck(ctx, account, code)
+	// A quota-blocked check can itself discover a reset and queue its immediate
+	// confirmation. Drain that durable job without waiting for the next tick.
+	s.wakeCheck()
 	s.flush(ctx)
 }
 

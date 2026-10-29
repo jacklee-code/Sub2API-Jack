@@ -102,7 +102,17 @@ func (s *Store) RetryCredit(ctx context.Context, id int64, code string) error {
 	return err
 }
 func CreditSucceeded(code string, windows int) bool {
-	return windows > 0 && (strings.EqualFold(code, "ok") || strings.EqualFold(code, "success"))
+	if windows <= 0 {
+		return false
+	}
+	// The consume endpoint reports a completed redemption as "reset"; retain
+	// the existing success aliases without accepting unknown or no-op outcomes.
+	switch strings.ToLower(code) {
+	case "reset", "ok", "success":
+		return true
+	default:
+		return false
+	}
 }
 func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code string, windows int, result []byte) error {
 	tx, err := s.locked(ctx)

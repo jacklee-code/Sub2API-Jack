@@ -142,22 +142,39 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	job, err = store.ClaimCheck(ctx)
 	require.NoError(t, err)
 	require.Zero(t, job)
-	now = now.Add(2 * time.Minute)
+	now = now.Add(100 * time.Millisecond)
 	low := base
 	low.At = now
 	low.Used = .2
+	low.Source = "request"
 	require.NoError(t, store.Observe(ctx, account, low))
 	checkUsage(90)
 	state, err := store.ResetSync(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, "confirming", state.Status)
-	now = now.Add(time.Minute)
-	low.At = now
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, account, job, "reset confirmation bypasses the recent quota-check cooldown")
+	leased, err := store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Zero(t, leased, "concurrent signals share one query lease")
+	confirmation := low
+	confirmation.At = now.Add(100 * time.Millisecond)
+	confirmation.Used = 2
+	confirmation.Source = "query"
+	now = now.Add(300 * time.Millisecond)
+	busySnapshot := low
+	busySnapshot.At = now
+	require.NoError(t, store.Observe(ctx, account, busySnapshot))
+	checkUsage(90)
+	state, err = store.ResetSync(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, low.At, *state.ObservedAt, "request traffic must not overtake the in-flight confirmation query")
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for range 2 {
 		wg.Add(1)
-		go func() { defer wg.Done(); errs <- store.Observe(ctx, account, low) }()
+		go func() { defer wg.Done(); errs <- store.Observe(ctx, account, confirmation) }()
 	}
 	wg.Wait()
 	close(errs)
@@ -165,6 +182,10 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 		require.NoError(t, e)
 	}
 	checkUsage(0)
+	require.NoError(t, store.FinishCheck(ctx, account, ""))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Zero(t, job, "confirmation is a one-shot job")
 	events, err := store.ResetEvents(ctx, id, 0, 20)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
@@ -190,18 +211,51 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	high.At = now
 	high.Used = 20
 	require.NoError(t, store.Observe(ctx, account, high))
-	now = now.Add(time.Minute)
+	now = now.Add(time.Millisecond)
 	low.At = now
 	require.NoError(t, store.Observe(ctx, account, low))
-	now = now.Add(time.Minute)
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, account, job)
+	now = now.Add(time.Millisecond)
+	rejected := high
+	rejected.At = now
+	require.NoError(t, store.Observe(ctx, account, rejected))
+	require.NoError(t, store.FinishCheck(ctx, account, ""))
+	checkUsage(3)
+	state, err = store.ResetSync(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "needs_review", state.Status)
+	now = now.Add(time.Millisecond)
 	low.At = now
 	require.NoError(t, store.Observe(ctx, account, low))
+	checkUsage(3)
+	require.NoError(t, store.QueueQuotaCheck(ctx, sub))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Zero(t, job, "a mismatched query must not create an immediate retry loop")
+	now = now.Add(time.Millisecond)
+	high.At, high.Source = now, "request"
+	require.NoError(t, store.Observe(ctx, account, high))
+	now = now.Add(time.Millisecond)
+	low.At = now
+	require.NoError(t, store.Observe(ctx, account, low))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, account, job, "a new drop may confirm immediately after a rejected candidate")
+	now = now.Add(time.Millisecond)
+	confirmation = low
+	confirmation.At, confirmation.Source, confirmation.Used = now, "query", 1.2
+	require.NoError(t, store.Observe(ctx, account, confirmation))
+	require.NoError(t, store.FinishCheck(ctx, account, ""))
 	checkUsage(0)
 	events, err = store.ResetEvents(ctx, id, 0, 20)
 	require.NoError(t, err)
 	require.Len(t, events, 2)
 	setUsage(50)
-	op, err := store.BeginCredit(ctx, user, account, "manual-credit-1")
+	// The real consume endpoint returns code="reset". Manual redemption must
+	// reset all counters even when the observed percentage is already near zero.
+	op, err := store.BeginCredit(ctx, user, account, "manual-credit-1", jackfleet.SourceIdentity(account, "", "", ""))
 	require.NoError(t, err)
 	_, err = store.BeginCredit(ctx, user, account, "manual-credit-1")
 	require.Error(t, err)
@@ -209,14 +263,15 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	retry, err := store.BeginCredit(ctx, user, account, "manual-credit-1")
 	require.NoError(t, err)
 	require.Equal(t, op.RedeemID, retry.RedeemID)
-	require.NoError(t, store.CompleteCredit(ctx, retry, "ok", 1, []byte(`{"code":"ok","windows_reset":1}`)))
+	require.NoError(t, store.CompleteCredit(ctx, retry, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
 	checkUsage(0)
 	setUsage(7)
-	require.NoError(t, store.CompleteCredit(ctx, retry, "ok", 1, []byte(`{"code":"ok","windows_reset":1}`)))
+	require.NoError(t, store.CompleteCredit(ctx, retry, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
 	checkUsage(7)
 	replayOp, err := store.BeginCredit(ctx, user, account, "manual-credit-1")
 	require.NoError(t, err)
 	require.Equal(t, "complete", replayOp.State)
+	require.JSONEq(t, `{"code":"reset","windows_reset":1}`, string(replayOp.Result))
 	now = now.Add(time.Minute)
 	low.At = now
 	require.NoError(t, store.Observe(ctx, account, low))
@@ -234,6 +289,14 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.CompleteCredit(ctx, noCredit, "no_credit", 0, []byte(`{"code":"no_credit","windows_reset":0}`)))
 	checkUsage(7)
+	noWindows, err := store.BeginCredit(ctx, user, account, "no-windows-test")
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, noWindows, "reset", 0, []byte(`{"code":"reset","windows_reset":0}`)))
+	checkUsage(7)
+	unknown, err := store.BeginCredit(ctx, user, account, "unknown-code-test")
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, unknown, "unknown", 1, []byte(`{"code":"unknown","windows_reset":1}`)))
+	checkUsage(7)
 	stale, err := store.BeginCredit(ctx, user, account, "stale-target")
 	require.NoError(t, err)
 	now = now.Add(time.Minute)
@@ -241,14 +304,14 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	base.Identity = "second-account"
 	_, err = store.Mutate(ctx, user, "change-source", jackfleet.Input{Action: "reset_sync", FleetID: id, SyncEnabled: true, SyncAccountID: otherAccount, SyncBaseline: &base, Versions: versions()})
 	require.NoError(t, err)
-	require.NoError(t, store.CompleteCredit(ctx, stale, "success", 2, []byte(`{"code":"success","windows_reset":2}`)))
+	require.NoError(t, store.CompleteCredit(ctx, stale, "reset", 2, []byte(`{"code":"reset","windows_reset":2}`)))
 	checkUsage(7)
 	// Credential replacement during a mock redemption must not reset the new source.
 	changed, e := store.BeginCredit(ctx, user, otherAccount, "changed-identity", jackfleet.SourceIdentity(otherAccount, "", "", ""))
 	require.NoError(t, e)
 	_, e = db.ExecContext(ctx, `UPDATE accounts SET credentials='{"chatgpt_account_id":"replacement"}' WHERE id=$1`, otherAccount)
 	require.NoError(t, e)
-	require.NoError(t, store.CompleteCredit(ctx, changed, "ok", 1, []byte(`{"code":"ok","windows_reset":1}`)))
+	require.NoError(t, store.CompleteCredit(ctx, changed, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
 	checkUsage(7)
 	_, err = store.Mutate(ctx, user, "disable-sync", jackfleet.Input{Action: "reset_sync", FleetID: id, Versions: versions()})
 	require.NoError(t, err)
@@ -259,4 +322,25 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	require.WithinDuration(t, now, *loaded.WeeklyWindowStart, time.Millisecond)
 	require.Equal(t, expiry.Unix(), loaded.ExpiresAt.Unix())
 	require.Equal(t, sub, loaded.ID)
+
+	// A failed confirmation query must not erase a scheduled rollover. A later
+	// successful query confirms its new deadline even after usage grows above 5%.
+	now = now.Add(time.Second)
+	base.At, base.ResetAt, base.Used = now, now.Add(time.Second), 80
+	base.Identity = jackfleet.SourceIdentity(otherAccount, "replacement", "", "")
+	_, err = store.Mutate(ctx, user, "enable-scheduled-retry", jackfleet.Input{Action: "reset_sync", FleetID: id, SyncEnabled: true, SyncAccountID: otherAccount, SyncBaseline: &base, Versions: versions()})
+	require.NoError(t, err)
+	now = now.Add(2 * time.Second)
+	rolled := base
+	rolled.At, rolled.ResetAt, rolled.Used, rolled.Source = now, now.Add(7*24*time.Hour), 15, "request"
+	require.NoError(t, store.Observe(ctx, otherAccount, rolled))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, otherAccount, job)
+	require.NoError(t, store.FinishCheck(ctx, otherAccount, "UPSTREAM_QUERY_FAILED"))
+	checkUsage(7)
+	now = now.Add(time.Millisecond)
+	rolled.At, rolled.Used, rolled.Source = now, 16, "query"
+	require.NoError(t, store.Observe(ctx, otherAccount, rolled))
+	checkUsage(0)
 }
