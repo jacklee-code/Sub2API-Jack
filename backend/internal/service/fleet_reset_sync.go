@@ -171,7 +171,7 @@ func NotifyFleetQuotaBlocked(sub *UserSubscription) {
 
 }
 func fleetAccountIdentity(a *Account) string {
-	return jackfleet.SourceIdentity(a.ID, a.GetCredential("chatgpt_account_id"), a.GetCredential("organization_id"), a.GetCredential("email"), a.GetCredential("plan_type"))
+	return jackfleet.SourceIdentity(a.ID, a.GetCredential("chatgpt_account_id"), a.GetCredential("organization_id"), a.GetCredential("email"))
 }
 func fleetObservation(in fleetObservationInput, a *Account) *jackfleet.Observation {
 	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth || a.IsShadow() || a.Status != StatusActive {
@@ -268,7 +268,9 @@ func (s *FleetResetSyncService) observe(in fleetObservationInput) {
 	s.mu.Lock()
 	last, known := s.sampled[in.account]
 	// Keep abrupt falls/window transitions despite the regular-sample throttle.
-	suppress := in.quota == nil && known && o.Identity == last.Identity && o.Plan == last.Plan && o.At.Sub(last.At) < time.Minute && !(last.Used >= 5 && o.Used <= 1) && !(!o.At.Before(last.ResetAt) && o.ResetAt.After(last.ResetAt.Add(time.Minute)))
+	earlyReset := last.Used >= 5 && o.Used <= 1
+	newWindow := !o.At.Before(last.ResetAt) && o.ResetAt.After(last.ResetAt.Add(time.Minute))
+	suppress := in.quota == nil && known && o.Identity == last.Identity && o.Plan == last.Plan && o.At.Sub(last.At) < time.Minute && !earlyReset && !newWindow
 	if !suppress {
 		s.sampled[in.account] = *o
 	}

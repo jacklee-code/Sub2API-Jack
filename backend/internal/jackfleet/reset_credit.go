@@ -121,12 +121,12 @@ func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code st
 	now := s.Now()
 	identityMatches := true
 	if op.Identity != "" {
-		var account, organization, email, plan string
-		e := tx.QueryRowContext(ctx, `SELECT COALESCE(credentials->>'chatgpt_account_id',''),COALESCE(credentials->>'organization_id',''),COALESCE(credentials->>'email',''),COALESCE(credentials->>'plan_type','') FROM accounts WHERE id=$1 AND deleted_at IS NULL FOR SHARE`, op.AccountID).Scan(&account, &organization, &email, &plan)
+		var account, organization, email string
+		e := tx.QueryRowContext(ctx, `SELECT COALESCE(credentials->>'chatgpt_account_id',''),COALESCE(credentials->>'organization_id',''),COALESCE(credentials->>'email','') FROM accounts WHERE id=$1 AND deleted_at IS NULL FOR SHARE`, op.AccountID).Scan(&account, &organization, &email)
 		if e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
-		identityMatches = e == nil && SourceIdentity(op.AccountID, account, organization, email, plan) == op.Identity
+		identityMatches = e == nil && SourceIdentity(op.AccountID, account, organization, email) == op.Identity
 	}
 	if CreditSucceeded(code, windows) && identityMatches {
 		targets := map[int64]int64{}

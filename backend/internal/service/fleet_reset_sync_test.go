@@ -124,3 +124,13 @@ func TestFleetBlockedSignalIsNonblockingAndCoalesced(t *testing.T) {
 	require.Len(t, s.queue, 1)
 	require.Equal(t, int64(2), (<-s.queue).blockedSubscription)
 }
+
+func TestFleetIdentitySurvivesTokenRefreshPlanMetadata(t *testing.T) {
+	a := &Account{ID: 1, Credentials: map[string]any{"chatgpt_account_id": "test-account", "email": "test@example.test", "plan_type": "pro", "access_token": "old-test-token"}}
+	before := fleetAccountIdentity(a)
+	a.Credentials["access_token"] = "new-test-token"
+	a.Credentials["plan_type"] = "plus"
+	require.Equal(t, before, fleetAccountIdentity(a), "a successful manual redemption must survive token refresh metadata updates")
+	a.Credentials["chatgpt_account_id"] = "different-account"
+	require.NotEqual(t, before, fleetAccountIdentity(a))
+}

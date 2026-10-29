@@ -244,7 +244,7 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	require.NoError(t, store.CompleteCredit(ctx, stale, "success", 2, []byte(`{"code":"success","windows_reset":2}`)))
 	checkUsage(7)
 	// Credential replacement during a mock redemption must not reset the new source.
-	changed, e := store.BeginCredit(ctx, user, otherAccount, "changed-identity", jackfleet.SourceIdentity(otherAccount, "", "", "", ""))
+	changed, e := store.BeginCredit(ctx, user, otherAccount, "changed-identity", jackfleet.SourceIdentity(otherAccount, "", "", ""))
 	require.NoError(t, e)
 	_, e = db.ExecContext(ctx, `UPDATE accounts SET credentials='{"chatgpt_account_id":"replacement"}' WHERE id=$1`, otherAccount)
 	require.NoError(t, e)

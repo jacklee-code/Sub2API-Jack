@@ -78,7 +78,9 @@ type ResetEvent struct {
 	CachePending bool         `json:"cache_pending"`
 }
 
-// SourceIdentity excludes rotating tokens while detecting replacement accounts.
-func SourceIdentity(id int64, account, organization, email, plan string) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s", id, account, organization, email, plan))))
+// SourceIdentity excludes rotating tokens and plan metadata. Plan changes are
+// checked separately for passive detection; a confirmed manual redemption still
+// applies when token refresh updates the same account's plan metadata.
+func SourceIdentity(id int64, account, organization, email string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s\x00%s", id, account, organization, email))))
 }
