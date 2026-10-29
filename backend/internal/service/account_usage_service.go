@@ -900,6 +900,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	NotifyFleetResetSnapshot(account.ID, ParseCodexRateLimitHeaders(resp.Header))
 	updates, err := extractOpenAICodexProbeUpdates(resp)
 	if err != nil {
 		return nil, err

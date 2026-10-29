@@ -9,9 +9,11 @@ import (
 const subscriptionDayDuration = 24 * time.Hour
 
 type UserSubscription struct {
-	ID      int64
-	UserID  int64
-	GroupID int64
+	FleetWeeklyManaged   bool
+	FleetNextWeeklyReset *time.Time
+	ID                   int64
+	UserID               int64
+	GroupID              int64
 
 	StartsAt  time.Time
 	ExpiresAt time.Time
@@ -88,6 +90,9 @@ func (s *UserSubscription) NeedsWeeklyReset() bool {
 }
 
 func (s *UserSubscription) NeedsWeeklyResetAt(now time.Time) bool {
+	if s.FleetWeeklyManaged {
+		return false
+	}
 	if s.WeeklyWindowStart == nil {
 		return false
 	}
@@ -129,8 +134,15 @@ func (s *UserSubscription) automaticDailyWindowStartAt(now time.Time) (time.Time
 }
 
 func (s *UserSubscription) canAutomaticallyResetWeeklyAt(now time.Time) bool {
-	_, ok := s.automaticWindowStartAt(s.WeeklyWindowStart, 7*24*time.Hour, now)
+	_, ok := s.automaticWeeklyWindowStartAt(now)
 	return ok
+}
+
+func (s *UserSubscription) automaticWeeklyWindowStartAt(now time.Time) (time.Time, bool) {
+	if s.FleetWeeklyManaged {
+		return time.Time{}, false
+	}
+	return s.automaticWindowStartAt(s.WeeklyWindowStart, 7*24*time.Hour, now)
 }
 
 func (s *UserSubscription) canAutomaticallyResetMonthlyAt(now time.Time) bool {
@@ -189,6 +201,9 @@ func (s *UserSubscription) DailyResetTime() *time.Time {
 }
 
 func (s *UserSubscription) WeeklyResetTime() *time.Time {
+	if s.FleetWeeklyManaged {
+		return s.FleetNextWeeklyReset
+	}
 	if s.WeeklyWindowStart == nil {
 		return nil
 	}

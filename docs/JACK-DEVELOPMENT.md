@@ -98,6 +98,67 @@ The idempotency record commits with the business changes. A cache outage returns
 restart. Retrying the same key does not repeat the business operation. Do not
 manually delete pending operation records.
 
+## Fleet upstream reset synchronization
+
+Fleet Management can opt each fleet into following one ChatGPT OAuth parent
+account bound to its group. Enabling requires a fresh seven-day baseline and
+preserves existing member usage. Changing sources starts a new observation
+generation. Disabling preserves usage and starts a new local seven-day timer.
+The setting defaults to off; migration does not adopt or reset any fleet.
+
+Normal gateway response snapshots (including the existing WebSocket/header
+paths), genuine admin usage reads and successful manual reset-credit operations
+feed the Jack observer. There is no periodic upstream polling. A confirmed
+seven-day rollover, or an early drop from at least 5% used to at most 1%, clears
+current members' daily/weekly/monthly subscription counters. Detection needs a
+second fresh observation at least 60 seconds later; a persisted one-shot check
+fills in when normal traffic does not provide it. The same upstream deadline may
+contain multiple early resets. Missing windows, stale/out-of-order observations,
+identity/plan changes and computed display values never grant quota.
+
+An authenticated request rejected by a managed subscription's quota can enqueue
+an asynchronous usage-only check. The request retains its ordinary quota error;
+a subsequent retry works after synchronization. Jobs coalesce by source account,
+with a database-enforced 60-second query cooldown and restartable leases. Idle
+accounts and API-key-level limits do not create queries. Failed reads retain
+usage and show an unavailable state until another event permits a retry.
+
+Manual reset credits are an explicit trigger independent of the seven-day
+percentage heuristic: an upstream `ok`/`success` with `windows_reset > 0` clears
+all three local counters. The admin endpoint accepts `Idempotency-Key`; the panel
+retains the key in session storage across a lost response. The database records
+the redemption id, reference-account identity and target fleet generations before
+calling upstream. Ambiguous outcomes retry the same redemption id, including
+after restart; a changed account identity stops recovery. Confirmed outcomes and
+fleet mutations commit together. The regular account recovery/display refresh
+cannot discard a successful redemption. The panel distinguishes credit usage
+from pending fleet cache synchronization. No automatic-credit configuration is
+changed by this feature.
+
+Jack tables store source configuration, observations, jobs, redemption operations
+and reset events. Detection, manual fleet resets, transfers and redemption results
+serialize with the existing fleet transaction lock. A manual reset cancels older
+candidates; successful redemption establishes a barrier for stale observations
+and rebaselines on the next real sample. Existing subscription IDs, API-key
+strings, expiries and usage logs are preserved. New charges are counted after the
+reset transaction; historic charges are not reconstructed. Inactive memberships
+are not reset, and the existing rejoin behavior applies the latest fleet reset.
+
+Policy-aware subscription reads, validation, progress and maintenance suppress
+local weekly rollover for enabled memberships. The repository additionally guards
+weekly reset writes from stale callers. Daily midnight and ordinary monthly
+maintenance continue. Weekly deadlines come from the upstream observation rather
+than the time of local synchronization. Source removal or unbinding suspends
+synchronization without choosing a replacement or re-enabling local weekly resets.
+
+This is an additive Jack migration. Before rolling back to a binary without this
+feature, disable synchronization for all fleets and resolve pending redemptions;
+older binaries do not enforce the external weekly policy or recover these jobs.
+Do not delete pending operation rows as a recovery technique. Production rollout
+and enablement remain operator actions. Tests use isolated PostgreSQL and local
+mock HTTP upstreams only: never consume an operator's real reset credits to verify
+this feature.
+
 ## Chat mode
 
 `/chat` lets users talk to models and generate images in the panel. Conversations,

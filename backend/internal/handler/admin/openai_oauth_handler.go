@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // OpenAIOAuthHandler handles OpenAI OAuth-related operations
@@ -592,7 +593,14 @@ func (h *OpenAIOAuthHandler) ResetQuota(c *gin.Context) {
 		response.BadRequest(c, "openai quota service is not enabled")
 		return
 	}
-	result, err := h.quotaService.ResetCredit(c.Request.Context(), accountID)
+	key := c.GetHeader("Idempotency-Key")
+	if key == "" {
+		key = uuid.NewString()
+	}
+	result, handled, err := service.TryFleetManualCredit(c.Request.Context(), getAdminIDFromContext(c), accountID, key)
+	if !handled {
+		result, err = h.quotaService.ResetCredit(c.Request.Context(), accountID)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

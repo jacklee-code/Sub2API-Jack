@@ -166,6 +166,7 @@
     >
       {{ resetMessage }}
     </div>
+    <p v-if="fleetSyncMessage" class="mt-2 text-xs text-primary-600" role="status">{{ fleetSyncMessage }}</p>
 
     <ConfirmDialog
       :show="showResetConfirm"
@@ -213,6 +214,7 @@ const data = ref<OpenAIQuotaUsage | null>(null)
 const cachedData = ref<OpenAIQuotaUsage | null>(null)
 const resetMessage = ref<string | null>(null)
 const resetWarning = ref<string | null>(null)
+const fleetSyncMessage = ref<string | null>(null)
 const showResetConfirm = ref(false)
 const showResetCreditDetails = ref(false)
 const creditsCacheWarning = ref(false)
@@ -440,6 +442,7 @@ const handleQuery = async () => {
   error.value = null
   resetMessage.value = null
   resetWarning.value = null
+    fleetSyncMessage.value = null
   showResetCreditDetails.value = false
   try {
     const result = await refreshOpenAIQuota(accountID)
@@ -485,8 +488,15 @@ const confirmReset = async () => {
   error.value = null
   resetMessage.value = null
   resetWarning.value = null
+    fleetSyncMessage.value = null
   try {
-    const result: OpenAIQuotaResetResult = await resetOpenAIQuota(accountID)
+    const storageKey = `jack-credit-operation:${accountID}`
+    let operationKey = sessionStorage.getItem(storageKey)
+    if (!operationKey) { operationKey = crypto.randomUUID(); sessionStorage.setItem(storageKey, operationKey) }
+    const result: OpenAIQuotaResetResult = await resetOpenAIQuota(accountID, operationKey)
+    if (result.fleet_sync_status !== 'pending') sessionStorage.removeItem(storageKey)
+    if (result.fleet_sync_status === 'pending') fleetSyncMessage.value = t('fleet.creditPending')
+    if (result.fleet_sync_status === 'synced') fleetSyncMessage.value = t('fleet.creditSynced', { count: result.fleet_sync_count || 0 })
     if (props.account.id !== accountID) return
     updateCredits(result.quota ?? null)
     showResetCreditDetails.value = false
@@ -513,6 +523,7 @@ const confirmReset = async () => {
       })
     }
   } catch (e) {
+    if ((e as { response?: { data?: { reason?: string } } }).response?.data?.reason === 'FLEET_CREDIT_REJECTED') sessionStorage.removeItem(`jack-credit-operation:${accountID}`)
     if (props.account.id !== accountID) return
     error.value = extractErrorMessage(e)
   } finally {
@@ -531,6 +542,7 @@ watch(
     error.value = null
     resetMessage.value = null
     resetWarning.value = null
+    fleetSyncMessage.value = null
     loading.value = false
     resetting.value = false
     showResetConfirm.value = false

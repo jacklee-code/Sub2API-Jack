@@ -1069,14 +1069,17 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 
 	// 检查限额（使用传入的Group限额配置）
 	if group.HasDailyLimit() && subData.DailyUsage >= *group.DailyLimitUSD {
+		NotifyFleetQuotaBlocked(subscription)
 		return ErrDailyLimitExceeded
 	}
 
 	if group.HasWeeklyLimit() && subData.WeeklyUsage >= *group.WeeklyLimitUSD {
+		NotifyFleetQuotaBlocked(subscription)
 		return ErrWeeklyLimitExceeded
 	}
 
 	if group.HasMonthlyLimit() && subData.MonthlyUsage >= *group.MonthlyLimitUSD {
+		NotifyFleetQuotaBlocked(subscription)
 		return ErrMonthlyLimitExceeded
 	}
 

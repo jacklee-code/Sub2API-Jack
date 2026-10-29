@@ -1828,6 +1828,7 @@ func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, accou
 	if snapshot == nil {
 		return
 	}
+	NotifyFleetResetSnapshot(account.ID, snapshot)
 	updates := buildCodexUsageExtraUpdates(snapshot, time.Now())
 	if len(updates) == 0 {
 		return

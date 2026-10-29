@@ -23,37 +23,40 @@ type Store struct {
 func NewStore(db *sql.DB) *Store { return &Store{DB: db, Now: time.Now} }
 
 type Member struct {
-	StartsAt       time.Time  `json:"starts_at"`
-	UserID         int64      `json:"user_id"`
-	Email          string     `json:"email"`
-	Username       string     `json:"username"`
-	Role           string     `json:"role"`
-	SubscriptionID int64      `json:"subscription_id"`
-	Independent    bool       `json:"independent_expiry"`
-	Active         bool       `json:"active"`
-	ExpiresAt      time.Time  `json:"expires_at"`
-	Status         string     `json:"status"`
-	Daily          float64    `json:"daily_usage_usd"`
-	Weekly         float64    `json:"weekly_usage_usd"`
-	Monthly        float64    `json:"monthly_usage_usd"`
-	DailyStart     *time.Time `json:"daily_window_start"`
-	WeeklyStart    *time.Time `json:"weekly_window_start"`
-	MonthlyStart   *time.Time `json:"monthly_window_start"`
-	KeyCount       int        `json:"key_count"`
-	OwnerFleetID   *int64     `json:"owner_fleet_id,omitempty"`
+	WeeklyManaged   bool       `json:"weekly_managed,omitempty"`
+	NextWeeklyReset *time.Time `json:"next_weekly_reset,omitempty"`
+	StartsAt        time.Time  `json:"starts_at"`
+	UserID          int64      `json:"user_id"`
+	Email           string     `json:"email"`
+	Username        string     `json:"username"`
+	Role            string     `json:"role"`
+	SubscriptionID  int64      `json:"subscription_id"`
+	Independent     bool       `json:"independent_expiry"`
+	Active          bool       `json:"active"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	Status          string     `json:"status"`
+	Daily           float64    `json:"daily_usage_usd"`
+	Weekly          float64    `json:"weekly_usage_usd"`
+	Monthly         float64    `json:"monthly_usage_usd"`
+	DailyStart      *time.Time `json:"daily_window_start"`
+	WeeklyStart     *time.Time `json:"weekly_window_start"`
+	MonthlyStart    *time.Time `json:"monthly_window_start"`
+	KeyCount        int        `json:"key_count"`
+	OwnerFleetID    *int64     `json:"owner_fleet_id,omitempty"`
 }
 type Fleet struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	GroupID      int64     `json:"group_id"`
-	GroupName    string    `json:"group_name"`
-	Platform     string    `json:"platform"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	Version      int64     `json:"version"`
-	DailyLimit   *float64  `json:"daily_limit_usd"`
-	WeeklyLimit  *float64  `json:"weekly_limit_usd"`
-	MonthlyLimit *float64  `json:"monthly_limit_usd"`
-	Members      []Member  `json:"members"`
+	ID           int64      `json:"id"`
+	Name         string     `json:"name"`
+	GroupID      int64      `json:"group_id"`
+	GroupName    string     `json:"group_name"`
+	Platform     string     `json:"platform"`
+	ExpiresAt    time.Time  `json:"expires_at"`
+	Version      int64      `json:"version"`
+	DailyLimit   *float64   `json:"daily_limit_usd"`
+	WeeklyLimit  *float64   `json:"weekly_limit_usd"`
+	MonthlyLimit *float64   `json:"monthly_limit_usd"`
+	Members      []Member   `json:"members"`
+	ResetSync    *ResetSync `json:"reset_sync,omitempty"`
 }
 type MemberInput struct {
 	UserID      int64      `json:"user_id"`
@@ -62,19 +65,23 @@ type MemberInput struct {
 	Adopt       bool       `json:"adopt_existing"`
 }
 type Input struct {
-	Action    string          `json:"action"`
-	FleetID   int64           `json:"fleet_id,omitempty"`
-	TargetID  int64           `json:"target_fleet_id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	GroupID   int64           `json:"group_id,omitempty"`
-	ExpiresAt *time.Time      `json:"expires_at,omitempty"`
-	Days      int             `json:"days,omitempty"`
-	Members   []MemberInput   `json:"members,omitempty"`
-	UserID    int64           `json:"user_id,omitempty"`
-	Daily     bool            `json:"daily,omitempty"`
-	Weekly    bool            `json:"weekly,omitempty"`
-	Monthly   bool            `json:"monthly,omitempty"`
-	Versions  map[int64]int64 `json:"versions,omitempty"`
+	SyncEnabled   bool         `json:"sync_enabled,omitempty"`
+	SyncAccountID int64        `json:"sync_account_id,omitempty"`
+	SyncBaseline  *Observation `json:"-"`
+	upstreamReset bool
+	Action        string          `json:"action"`
+	FleetID       int64           `json:"fleet_id,omitempty"`
+	TargetID      int64           `json:"target_fleet_id,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	GroupID       int64           `json:"group_id,omitempty"`
+	ExpiresAt     *time.Time      `json:"expires_at,omitempty"`
+	Days          int             `json:"days,omitempty"`
+	Members       []MemberInput   `json:"members,omitempty"`
+	UserID        int64           `json:"user_id,omitempty"`
+	Daily         bool            `json:"daily,omitempty"`
+	Weekly        bool            `json:"weekly,omitempty"`
+	Monthly       bool            `json:"monthly,omitempty"`
+	Versions      map[int64]int64 `json:"versions,omitempty"`
 }
 type Pair struct {
 	UserID  int64 `json:"user_id"`
@@ -112,6 +119,10 @@ func (s *Store) List(ctx context.Context) ([]Fleet, error) {
 		return nil, err
 	}
 	for i := range fleets {
+		fleets[i].ResetSync, err = s.ResetSync(ctx, fleets[i].ID)
+		if err != nil {
+			return nil, err
+		}
 		fleets[i].Members, err = s.members(ctx, fleets[i].GroupID, &fleets[i].ID)
 		if err != nil {
 			return nil, err
@@ -123,7 +134,7 @@ func (s *Store) Preview(ctx context.Context, groupID int64) ([]Member, error) {
 	return s.members(ctx, groupID, nil)
 }
 func (s *Store) members(ctx context.Context, groupID int64, fleetID *int64) ([]Member, error) {
-	query := `SELECT s.user_id,u.email,COALESCE(u.username,''),u.role,s.id,COALESCE(m.independent_expiry,false),COALESCE(m.active,true),s.starts_at,s.expires_at,s.status,s.daily_usage_usd,s.weekly_usage_usd,s.monthly_usage_usd,s.daily_window_start,s.weekly_window_start,s.monthly_window_start,(SELECT count(*) FROM api_keys k WHERE k.user_id=s.user_id AND k.group_id=s.group_id AND k.deleted_at IS NULL),m.fleet_id FROM user_subscriptions s JOIN users u ON u.id=s.user_id LEFT JOIN jack_fleet_members m ON m.subscription_id=s.id WHERE s.group_id=$1 AND s.deleted_at IS NULL AND u.deleted_at IS NULL`
+	query := `SELECT s.user_id,u.email,COALESCE(u.username,''),u.role,s.id,COALESCE(m.independent_expiry,false),COALESCE(m.active,true),s.starts_at,s.expires_at,s.status,s.daily_usage_usd,s.weekly_usage_usd,s.monthly_usage_usd,s.daily_window_start,s.weekly_window_start,s.monthly_window_start,(SELECT count(*) FROM api_keys k WHERE k.user_id=s.user_id AND k.group_id=s.group_id AND k.deleted_at IS NULL),m.fleet_id,COALESCE(r.enabled,false) AND COALESCE(m.active,false),r.next_reset_at FROM user_subscriptions s JOIN users u ON u.id=s.user_id LEFT JOIN jack_fleet_members m ON m.subscription_id=s.id LEFT JOIN jack_fleet_reset_sync r ON r.fleet_id=m.fleet_id WHERE s.group_id=$1 AND s.deleted_at IS NULL AND u.deleted_at IS NULL`
 	args := []any{groupID}
 	if fleetID != nil {
 		query += ` AND m.fleet_id=$2`
@@ -137,7 +148,7 @@ func (s *Store) members(ctx context.Context, groupID int64, fleetID *int64) ([]M
 	result := []Member{}
 	for rows.Next() {
 		var m Member
-		if err = rows.Scan(&m.UserID, &m.Email, &m.Username, &m.Role, &m.SubscriptionID, &m.Independent, &m.Active, &m.StartsAt, &m.ExpiresAt, &m.Status, &m.Daily, &m.Weekly, &m.Monthly, &m.DailyStart, &m.WeeklyStart, &m.MonthlyStart, &m.KeyCount, &m.OwnerFleetID); err != nil {
+		if err = rows.Scan(&m.UserID, &m.Email, &m.Username, &m.Role, &m.SubscriptionID, &m.Independent, &m.Active, &m.StartsAt, &m.ExpiresAt, &m.Status, &m.Daily, &m.Weekly, &m.Monthly, &m.DailyStart, &m.WeeklyStart, &m.MonthlyStart, &m.KeyCount, &m.OwnerFleetID, &m.WeeklyManaged, &m.NextWeeklyReset); err != nil {
 			return nil, err
 		}
 		result = append(result, m)
@@ -338,6 +349,8 @@ func (s *Store) apply(ctx context.Context, tx *sql.Tx, actor int64, in Input, ou
 		return err
 	}
 	switch in.Action {
+	case "reset_sync":
+		err = s.configureResetSync(ctx, tx, f, in, out, now)
 	case "rename":
 		name := strings.TrimSpace(in.Name)
 		if name == "" || len([]rune(name)) > 100 {
@@ -482,6 +495,11 @@ func (s *Store) leave(ctx context.Context, tx *sql.Tx, f Fleet, userID int64, ou
 func (s *Store) reset(ctx context.Context, tx *sql.Tx, id int64, in Input, out *Result, now time.Time) error {
 	if !in.Daily && !in.Weekly && !in.Monthly {
 		return bad("Select at least one quota window")
+	}
+	if in.Weekly && !in.upstreamReset {
+		if _, err := tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET candidate=NULL,rebaseline=true,configured_at=$2,status='watching' WHERE fleet_id=$1 AND enabled`, id, now); err != nil {
+			return err
+		}
 	}
 	day := timezone.StartOfDay(now)
 	if _, err := tx.ExecContext(ctx, `UPDATE jack_fleets SET daily_reset_at=CASE WHEN $2 THEN $5 ELSE daily_reset_at END,weekly_reset_at=CASE WHEN $3 THEN $5 ELSE weekly_reset_at END,monthly_reset_at=CASE WHEN $4 THEN $5 ELSE monthly_reset_at END WHERE id=$1`, id, in.Daily, in.Weekly, in.Monthly, now); err != nil {
