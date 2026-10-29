@@ -62,7 +62,7 @@ func TestFleetUsageOnlyQueryAndStableRedemptionUseMockUpstream(t *testing.T) {
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 			redeemIDs = append(redeemIDs, body["redeem_request_id"])
 			require.Empty(t, body["credit_id"])
-			_, _ = w.Write([]byte(`{"code":"ok","windows_reset":1}`))
+			_, _ = w.Write([]byte(`{"code":"reset","windows_reset":1}`))
 		default:
 			t.Errorf("unexpected mock upstream call: %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -77,8 +77,10 @@ func TestFleetUsageOnlyQueryAndStableRedemptionUseMockUpstream(t *testing.T) {
 	require.True(t, q.RateLimit.PrimaryWindow.usedPercentPresent)
 	require.Equal(t, 1, usageCalls)
 	for range 2 {
-		_, err = quota.ResetCreditStable(context.Background(), account.ID, "test-operation-same-id")
+		result, err := quota.ResetCreditStable(context.Background(), account.ID, "test-operation-same-id")
 		require.NoError(t, err)
+		require.Equal(t, "reset", result.Code)
+		require.True(t, jackfleet.CreditSucceeded(result.Code, result.WindowsReset))
 	}
 	require.Equal(t, []string{"test-operation-same-id", "test-operation-same-id"}, redeemIDs)
 	_, err = quota.ResetCreditStable(context.Background(), account.ID, "test-operation-same-id", "a-different-account")

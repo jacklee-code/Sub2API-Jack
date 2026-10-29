@@ -124,9 +124,11 @@ accounts and API-key-level limits do not create queries. Failed reads retain
 usage and show an unavailable state until another event permits a retry.
 
 Manual reset credits are an explicit trigger independent of the seven-day
-percentage heuristic: an upstream `ok`/`success` with `windows_reset > 0` clears
-all three local counters. The admin endpoint accepts `Idempotency-Key`; the panel
-retains the key in session storage across a lost response. The database records
+percentage heuristic: an upstream `reset` (or the supported `ok`/`success` aliases) with
+`windows_reset > 0` clears all three local counters. A zero-window or unknown
+outcome does not reset usage. Completed redemption operations are never replayed
+to retroactively clear later usage. The admin endpoint accepts `Idempotency-Key`;
+the panel retains the key in session storage across a lost response. The database records
 the redemption id, reference-account identity and target fleet generations before
 calling upstream. Ambiguous outcomes retry the same redemption id, including
 after restart; a changed account identity stops recovery. Confirmed outcomes and
