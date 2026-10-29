@@ -24,8 +24,12 @@ func next(t *testing.T, ch <-chan map[string]any) map[string]any {
 
 func TestRunContinuesAfterDetachAndReattachGetsSnapshot(t *testing.T) {
 	runs := NewRuns()
+	subscribed := make(chan struct{})
 	step := make(chan struct{})
 	run, err := runs.Start(1, 10, func(ctx context.Context, emit Emit) error {
+		// This first subscription tests live events; do not let generation race
+		// ahead and turn them into a snapshot that the test intentionally ignores.
+		<-subscribed
 		emit(map[string]any{"type": "start", "assistant_message": Message{ID: 5, Status: StatusStreaming}})
 		emit(map[string]any{"type": "delta", "text": "Hel"})
 		<-step // the page leaves here
@@ -38,6 +42,7 @@ func TestRunContinuesAfterDetachAndReattachGetsSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	_, events, detach := run.Subscribe()
+	close(subscribed)
 	require.Equal(t, "start", next(t, events)["type"])
 	require.Equal(t, "Hel", next(t, events)["text"])
 	detach() // browser navigates away; the run is not cancelled
