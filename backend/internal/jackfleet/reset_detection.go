@@ -44,14 +44,17 @@ func detectReset(before, after Observation) string {
 	return ""
 }
 func confirmsReset(c ResetCandidate, o Observation) bool {
-	if !sameIdentity(c.First, o) || o.At.Sub(c.First.At) < time.Minute {
+	// A separate authenticated usage query confirms the observation immediately;
+	// repeated request headers alone must never grant quota.
+	if o.Source != "query" || !sameIdentity(c.First, o) || !o.At.After(c.First.At) {
 		return false
 	}
 	if c.Kind == "early" {
-		return o.Used <= 1
+		// Allow small amounts of new usage while the confirmation is in flight.
+		return math.Abs(o.Used-c.First.Used) <= 2 && o.Used < c.Before.Used
 	}
 	delta := o.ResetAt.Sub(c.First.ResetAt)
-	return delta >= -time.Minute && delta <= time.Minute
+	return c.Kind == "scheduled" && delta >= -time.Minute && delta <= time.Minute
 }
 
 type ResetSync struct {

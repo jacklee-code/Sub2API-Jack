@@ -142,22 +142,39 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	job, err = store.ClaimCheck(ctx)
 	require.NoError(t, err)
 	require.Zero(t, job)
-	now = now.Add(2 * time.Minute)
+	now = now.Add(100 * time.Millisecond)
 	low := base
 	low.At = now
 	low.Used = .2
+	low.Source = "request"
 	require.NoError(t, store.Observe(ctx, account, low))
 	checkUsage(90)
 	state, err := store.ResetSync(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, "confirming", state.Status)
-	now = now.Add(time.Minute)
-	low.At = now
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, account, job, "reset confirmation bypasses the recent quota-check cooldown")
+	leased, err := store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Zero(t, leased, "concurrent signals share one query lease")
+	confirmation := low
+	confirmation.At = now.Add(100 * time.Millisecond)
+	confirmation.Used = 2
+	confirmation.Source = "query"
+	now = now.Add(300 * time.Millisecond)
+	busySnapshot := low
+	busySnapshot.At = now
+	require.NoError(t, store.Observe(ctx, account, busySnapshot))
+	checkUsage(90)
+	state, err = store.ResetSync(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, low.At, *state.ObservedAt, "request traffic must not overtake the in-flight confirmation query")
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for range 2 {
 		wg.Add(1)
-		go func() { defer wg.Done(); errs <- store.Observe(ctx, account, low) }()
+		go func() { defer wg.Done(); errs <- store.Observe(ctx, account, confirmation) }()
 	}
 	wg.Wait()
 	close(errs)
@@ -165,6 +182,10 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 		require.NoError(t, e)
 	}
 	checkUsage(0)
+	require.NoError(t, store.FinishCheck(ctx, account, ""))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Zero(t, job, "confirmation is a one-shot job")
 	events, err := store.ResetEvents(ctx, id, 0, 20)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
@@ -190,19 +211,50 @@ func TestFleetResetSyncTransactions(t *testing.T) {
 	high.At = now
 	high.Used = 20
 	require.NoError(t, store.Observe(ctx, account, high))
-	now = now.Add(time.Minute)
+	now = now.Add(time.Millisecond)
 	low.At = now
 	require.NoError(t, store.Observe(ctx, account, low))
-	now = now.Add(time.Minute)
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, account, job)
+	now = now.Add(time.Millisecond)
+	rejected := high
+	rejected.At = now
+	require.NoError(t, store.Observe(ctx, account, rejected))
+	require.NoError(t, store.FinishCheck(ctx, account, ""))
+	checkUsage(3)
+	state, err = store.ResetSync(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "needs_review", state.Status)
+	now = now.Add(time.Millisecond)
 	low.At = now
 	require.NoError(t, store.Observe(ctx, account, low))
+	checkUsage(3)
+	require.NoError(t, store.QueueQuotaCheck(ctx, sub))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Zero(t, job, "a mismatched query must not create an immediate retry loop")
+	now = now.Add(time.Millisecond)
+	high.At, high.Source = now, "request"
+	require.NoError(t, store.Observe(ctx, account, high))
+	now = now.Add(time.Millisecond)
+	low.At = now
+	require.NoError(t, store.Observe(ctx, account, low))
+	job, err = store.ClaimCheck(ctx)
+	require.NoError(t, err)
+	require.Equal(t, account, job, "a new drop may confirm immediately after a rejected candidate")
+	now = now.Add(time.Millisecond)
+	confirmation = low
+	confirmation.At, confirmation.Source, confirmation.Used = now, "query", 1.2
+	require.NoError(t, store.Observe(ctx, account, confirmation))
+	require.NoError(t, store.FinishCheck(ctx, account, ""))
 	checkUsage(0)
 	events, err = store.ResetEvents(ctx, id, 0, 20)
 	require.NoError(t, err)
 	require.Len(t, events, 2)
 	setUsage(50)
 	// The real consume endpoint returns code="reset". Manual redemption must
-	// reset all counters even when the observed percentage is already below 1%.
+	// reset all counters even when the observed percentage is already near zero.
 	op, err := store.BeginCredit(ctx, user, account, "manual-credit-1", jackfleet.SourceIdentity(account, "", "", ""))
 	require.NoError(t, err)
 	_, err = store.BeginCredit(ctx, user, account, "manual-credit-1")
