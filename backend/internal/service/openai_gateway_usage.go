@@ -990,6 +990,9 @@ func (s *OpenAIGatewayService) resolveOpenAIChannelPricing(ctx context.Context, 
 // Exported for use in ratelimit_service when handling OpenAI 429 responses.
 func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 	snapshot := &OpenAICodexUsageSnapshot{}
+	if at, err := http.ParseTime(headers.Get("Date")); err == nil {
+		snapshot.ServerObservedAt = at.UTC().Format(time.RFC3339)
+	}
 	hasData := false
 
 	// Helper to parse float64 from header
@@ -1161,6 +1164,7 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	if len(updates) == 0 {
 		return
 	}
+	NotifyFleetResetSnapshot(accountID, snapshot)
 	if !s.getCodexSnapshotThrottle().Allow(accountID, now) {
 		return
 	}

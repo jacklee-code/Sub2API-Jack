@@ -16,6 +16,7 @@ import (
 
 type FleetHandler struct {
 	store         *jackfleet.Store
+	resetSync     *service.FleetResetSyncService
 	subscriptions *service.SubscriptionService
 	keys          *service.APIKeyService
 	cancel        context.CancelFunc
@@ -23,9 +24,10 @@ type FleetHandler struct {
 	mu            sync.Mutex
 }
 
-func NewFleetHandler(db *sql.DB, subs *service.SubscriptionService, keys *service.APIKeyService) *FleetHandler {
+func NewFleetHandler(db *sql.DB, subs *service.SubscriptionService, keys *service.APIKeyService, quota *service.OpenAIQuotaService) *FleetHandler {
 	h := &FleetHandler{store: jackfleet.NewStore(db), subscriptions: subs, keys: keys, done: make(chan struct{})}
 	subs.EnableFleetManagement()
+	h.resetSync = service.NewFleetResetSyncService(h.store, quota, h.drain)
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	go func() {
@@ -45,7 +47,7 @@ func NewFleetHandler(db *sql.DB, subs *service.SubscriptionService, keys *servic
 	}()
 	return h
 }
-func (h *FleetHandler) Stop() { h.cancel(); <-h.done }
+func (h *FleetHandler) Stop() { h.resetSync.Stop(); h.cancel(); <-h.done }
 func (h *FleetHandler) sync(ctx context.Context, actor int64, key string, result *jackfleet.Result) error {
 	if !result.CachePending {
 		return nil
@@ -118,7 +120,19 @@ func (h *FleetHandler) Mutate(c *gin.Context) {
 	}
 	actor := getAdminIDFromContext(c)
 	key := c.GetHeader("Idempotency-Key")
-	result, err := h.store.Mutate(c.Request.Context(), actor, key, input)
+	result, err := h.store.Replay(c.Request.Context(), actor, key, input)
+	if err == nil && result == nil {
+		if input.Action == "reset_sync" && input.SyncEnabled {
+			if h.resetSync == nil {
+				response.BadRequest(c, "Fleet reset synchronization is unavailable")
+				return
+			}
+			input.SyncBaseline, err = h.resetSync.Baseline(c.Request.Context(), input.SyncAccountID)
+		}
+		if err == nil {
+			result, err = h.store.Mutate(c.Request.Context(), actor, key, input)
+		}
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -128,13 +142,62 @@ func (h *FleetHandler) Mutate(c *gin.Context) {
 	if err = h.sync(ctx, actor, key, result); err != nil {
 		log.Printf("[Fleet] committed operation awaiting cache synchronization: %v", err)
 	}
+	if h.resetSync != nil {
+		h.resetSync.RefreshTargets(ctx)
+	}
 	response.Success(c, result)
 }
 
 func normalizeFleetMembers(members []jackfleet.Member) {
 	for i := range members {
 		m := &members[i]
-		normalized := service.NormalizeFleetSubscriptionView(service.UserSubscription{StartsAt: m.StartsAt, ExpiresAt: m.ExpiresAt, Status: m.Status, DailyWindowStart: m.DailyStart, WeeklyWindowStart: m.WeeklyStart, MonthlyWindowStart: m.MonthlyStart, DailyUsageUSD: m.Daily, WeeklyUsageUSD: m.Weekly, MonthlyUsageUSD: m.Monthly})
+		normalized := service.NormalizeFleetSubscriptionView(service.UserSubscription{FleetWeeklyManaged: m.WeeklyManaged, FleetNextWeeklyReset: m.NextWeeklyReset, StartsAt: m.StartsAt, ExpiresAt: m.ExpiresAt, Status: m.Status, DailyWindowStart: m.DailyStart, WeeklyWindowStart: m.WeeklyStart, MonthlyWindowStart: m.MonthlyStart, DailyUsageUSD: m.Daily, WeeklyUsageUSD: m.Weekly, MonthlyUsageUSD: m.Monthly})
 		m.Daily, m.Weekly, m.Monthly, m.Status = normalized.DailyUsageUSD, normalized.WeeklyUsageUSD, normalized.MonthlyUsageUSD, normalized.Status
 	}
+}
+
+func (h *FleetHandler) ResetEvents(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid fleet ID")
+		return
+	}
+	before, _ := strconv.ParseInt(c.Query("before"), 10, 64)
+	events, err := h.store.ResetEvents(c.Request.Context(), id, before, 20)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, events)
+}
+func (h *FleetHandler) ResetSources(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid fleet ID")
+		return
+	}
+	rows, err := h.store.DB.QueryContext(c.Request.Context(), `SELECT a.id,a.name FROM accounts a JOIN account_groups ag ON ag.account_id=a.id JOIN jack_fleets f ON f.group_id=ag.group_id WHERE f.id=$1 AND f.archived_at IS NULL AND a.platform='openai' AND a.type='oauth' AND a.parent_account_id IS NULL AND a.deleted_at IS NULL AND a.status='active' ORDER BY a.id`, id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+	type source struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	values := []source{}
+	for rows.Next() {
+		var v source
+		if err = rows.Scan(&v.ID, &v.Name); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		values = append(values, v)
+	}
+	if err = rows.Err(); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, values)
 }

@@ -951,7 +951,7 @@ func (s *SubscriptionService) CheckAndResetWindows(ctx context.Context, sub *Use
 	}
 
 	// 周窗口重置（7天）
-	if windowStart, ok := sub.automaticWindowStartAt(sub.WeeklyWindowStart, 7*24*time.Hour, now); ok {
+	if windowStart, ok := sub.automaticWeeklyWindowStartAt(now); ok {
 		expectedWindowStart := sub.WeeklyWindowStart
 		if err := s.userSubRepo.ResetWeeklyUsage(ctx, sub.ID, expectedWindowStart, windowStart); err != nil {
 			return err
@@ -1013,12 +1013,15 @@ func (s *SubscriptionService) EnsureWindowMaintenance(ctx context.Context, sub *
 // 用于中间件的快速预检查，additionalCost 通常为 0
 func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSubscription, group *Group, additionalCost float64) error {
 	if !sub.CheckDailyLimit(group, additionalCost) {
+		NotifyFleetQuotaBlocked(sub)
 		return ErrDailyLimitExceeded
 	}
 	if !sub.CheckWeeklyLimit(group, additionalCost) {
+		NotifyFleetQuotaBlocked(sub)
 		return ErrWeeklyLimitExceeded
 	}
 	if !sub.CheckMonthlyLimit(group, additionalCost) {
+		NotifyFleetQuotaBlocked(sub)
 		return ErrMonthlyLimitExceeded
 	}
 	return nil
@@ -1060,12 +1063,15 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 
 	// 3. 检查用量限额
 	if !sub.CheckDailyLimit(group, 0) {
+		NotifyFleetQuotaBlocked(sub)
 		return needsMaintenance, ErrDailyLimitExceeded
 	}
 	if !sub.CheckWeeklyLimit(group, 0) {
+		NotifyFleetQuotaBlocked(sub)
 		return needsMaintenance, ErrWeeklyLimitExceeded
 	}
 	if !sub.CheckMonthlyLimit(group, 0) {
+		NotifyFleetQuotaBlocked(sub)
 		return needsMaintenance, ErrMonthlyLimitExceeded
 	}
 

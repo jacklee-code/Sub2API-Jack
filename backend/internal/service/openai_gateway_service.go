@@ -124,6 +124,10 @@ var codexCLIOnlyDebugHeaderWhitelist = []string{
 
 // OpenAICodexUsageSnapshot represents Codex API usage limits from response headers
 type OpenAICodexUsageSnapshot struct {
+	// Upstream Date prevents late streams/reused handshake headers looking fresh
+	// to Jack reset detection. Existing display snapshot timestamps are unchanged.
+	ServerObservedAt string `json:"-"`
+
 	PrimaryUsedPercent          *float64 `json:"primary_used_percent,omitempty"`
 	PrimaryResetAfterSeconds    *int     `json:"primary_reset_after_seconds,omitempty"`
 	PrimaryWindowMinutes        *int     `json:"primary_window_minutes,omitempty"`

@@ -62,6 +62,7 @@ const resetButton = (wrapper: ReturnType<typeof mount>) =>
   wrapper.findAll('button')[1]
 
 beforeEach(() => {
+  sessionStorage.clear()
   vi.mocked(refreshOpenAIQuota).mockReset()
   vi.mocked(resetOpenAIQuota).mockReset()
 })
@@ -351,7 +352,7 @@ describe('OpenAIQuotaResetCell — 外审 F6:影子禁用重置', () => {
     wrapper.findComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
 
-    expect(resetOpenAIQuota).toHaveBeenCalledWith(1)
+    expect(resetOpenAIQuota).toHaveBeenCalledWith(1, expect.any(String))
     expect(refreshOpenAIQuota).not.toHaveBeenCalled()
     expect(wrapper.get('[data-testid="codex-credits"]').text()).toContain('999.25')
     expect(wrapper.text()).not.toContain('admin.accounts.openaiQuotaReset.expiresAt:')
@@ -470,6 +471,33 @@ describe('OpenAIQuotaResetCell 自动用卡运行态', () => {
     })
     const wrapper = mount(OpenAIQuotaResetCell, { props: { account } })
     expect(wrapper.find('[data-testid="auto-reset-credit-state"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('Fleet reset credit synchronization', () => {
+  const account = () => makeAccount({ parent_account_id: null, extra: { codex_reset_credit_snapshot: { available_count: 1, credits: [{ expires_at: FUTURE_EXPIRY_EARLY }] } } })
+  it('retains the same redemption operation across a lost response and component remount', async () => {
+    vi.mocked(resetOpenAIQuota).mockRejectedValueOnce(new Error('Lost response')).mockResolvedValueOnce({ code: 'ok', windows_reset: 1, cache_refreshed: false, account_state_recovered: true, fleet_sync_status: 'synced', fleet_sync_count: 1 })
+    let wrapper = mount(OpenAIQuotaResetCell, { props: { account: account() } })
+    await resetButton(wrapper).trigger('click'); wrapper.findComponent(ConfirmDialog).vm.$emit('confirm'); await flushPromises()
+    const key = vi.mocked(resetOpenAIQuota).mock.calls[0][1]
+    expect(key).toBeTruthy(); expect(sessionStorage.getItem('jack-credit-operation:1')).toBe(key)
+    wrapper.unmount()
+    wrapper = mount(OpenAIQuotaResetCell, { props: { account: account() } })
+    await resetButton(wrapper).trigger('click'); wrapper.findComponent(ConfirmDialog).vm.$emit('confirm'); await flushPromises()
+    expect(resetOpenAIQuota).toHaveBeenNthCalledWith(2, 1, key)
+    expect(sessionStorage.getItem('jack-credit-operation:1')).toBeNull()
+    expect(wrapper.text()).toContain('fleet.creditSynced:1')
+    wrapper.unmount()
+  })
+  it('reports pending fleet synchronization without inviting another credit consumption', async () => {
+    vi.mocked(resetOpenAIQuota).mockResolvedValue({ code: 'ok', windows_reset: 1, cache_refreshed: false, account_state_recovered: true, fleet_sync_status: 'pending' })
+    const wrapper = mount(OpenAIQuotaResetCell, { props: { account: account() } })
+    await resetButton(wrapper).trigger('click'); wrapper.findComponent(ConfirmDialog).vm.$emit('confirm'); await flushPromises()
+    expect(wrapper.text()).toContain('fleet.creditPending')
+    expect(sessionStorage.getItem('jack-credit-operation:1')).toBeTruthy()
+    expect(resetButton(wrapper).attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
 })

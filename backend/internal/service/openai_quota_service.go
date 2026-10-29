@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -42,10 +43,29 @@ const (
 // /wham/usage. The upstream returns an explicit `null` window when the slot
 // is unused, so consumers should treat a nil pointer as "no data".
 type OpenAIRateLimitWindow struct {
+	usedPercentPresent bool
 	UsedPercent        float64 `json:"used_percent"`
 	LimitWindowSeconds int64   `json:"limit_window_seconds"`
 	ResetAfterSeconds  int64   `json:"reset_after_seconds"`
 	ResetAt            int64   `json:"reset_at"`
+}
+
+// Preserve field presence for automation; a missing percentage is not zero usage.
+func (w *OpenAIRateLimitWindow) UnmarshalJSON(data []byte) error {
+	type alias OpenAIRateLimitWindow
+	var raw struct {
+		*alias
+		Used *float64 `json:"used_percent"`
+	}
+	raw.alias = (*alias)(w)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	w.usedPercentPresent = raw.Used != nil
+	if raw.Used != nil {
+		w.UsedPercent = *raw.Used
+	}
+	return nil
 }
 
 // OpenAIRateLimit is a rate-limit envelope (primary + optional secondary window).
@@ -123,9 +143,11 @@ type OpenAIQuotaResetCredit struct {
 // The inner Credit also carries `redeemed_at` (RFC3339 string); we deliberately do
 // NOT add a top-level redeemed_at to avoid ambiguity with the nested field.
 type OpenAIQuotaResetResult struct {
-	Code         string                  `json:"code"`
-	Credit       *OpenAIQuotaResetCredit `json:"credit,omitempty"`
-	WindowsReset int                     `json:"windows_reset"`
+	FleetSyncStatus string                  `json:"fleet_sync_status,omitempty"`
+	FleetSyncCount  int                     `json:"fleet_sync_count,omitempty"`
+	Code            string                  `json:"code"`
+	Credit          *OpenAIQuotaResetCredit `json:"credit,omitempty"`
+	WindowsReset    int                     `json:"windows_reset"`
 }
 
 // OpenAIQuotaService queries and consumes ChatGPT/Codex rate-limit reset credits
@@ -164,6 +186,16 @@ func NewOpenAIQuotaService(
 // OAuth account. Returns infraerrors so the handler layer can map them to
 // stable error codes / HTTP statuses.
 func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*OpenAIQuotaUsage, error) {
+	return s.queryUsage(ctx, accountID, true)
+}
+
+// QueryUsageSnapshot fetches usage only; event-driven fleet checks do not query credits.
+func (s *OpenAIQuotaService) QueryUsageSnapshot(ctx context.Context, accountID int64) (*OpenAIQuotaUsage, error) {
+	return s.queryUsage(ctx, accountID, false)
+}
+func (s *OpenAIQuotaService) queryUsage(ctx context.Context, accountID int64, includeCredits bool) (*OpenAIQuotaUsage, error) {
+	observedAt := time.Now()
+
 	accessToken, chatGPTAccountID, proxyURL, fedRAMP, err := s.prepareUpstreamCall(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -213,6 +245,12 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 	}
 
 	payload.FetchedAt = time.Now().Unix()
+	if includeCredits {
+		notifyFleetQuotaObservation(accountID, &payload, observedAt)
+	}
+	if !includeCredits {
+		return &payload, nil
+	}
 	details := s.queryResetCreditDetails(callCtx, client, accessToken, chatGPTAccountID, fedRAMP, accountID)
 	if details != nil {
 		payload.autoResetCandidates = details.AutoResetCandidates
@@ -346,6 +384,11 @@ func (s *OpenAIQuotaService) ResetCredit(ctx context.Context, accountID int64) (
 	return s.resetCredit(ctx, accountID, "", redeemRequestID, false)
 }
 
+// ResetCreditStable reuses a previously persisted redemption id after lost responses.
+func (s *OpenAIQuotaService) ResetCreditStable(ctx context.Context, accountID int64, redeemID string, expectedAccount ...string) (*OpenAIQuotaResetResult, error) {
+	return s.resetCredit(ctx, accountID, "", redeemID, false, expectedAccount...)
+}
+
 // ResetCreditTargeted 使用固定卡 ID 与兑换 ID执行自动消费。调用方必须在重试时
 // 复用同一组参数；本方法不会回退到不带 credit_id 的旧消费方式。
 func (s *OpenAIQuotaService) ResetCreditTargeted(ctx context.Context, accountID int64, creditID, redeemRequestID string) (*OpenAIQuotaResetResult, error) {
@@ -357,7 +400,7 @@ func (s *OpenAIQuotaService) ResetCreditTargeted(ctx context.Context, accountID 
 	return s.resetCredit(ctx, accountID, creditID, redeemRequestID, true)
 }
 
-func (s *OpenAIQuotaService) resetCredit(ctx context.Context, accountID int64, creditID, redeemRequestID string, targeted bool) (*OpenAIQuotaResetResult, error) {
+func (s *OpenAIQuotaService) resetCredit(ctx context.Context, accountID int64, creditID, redeemRequestID string, targeted bool, expectedAccount ...string) (*OpenAIQuotaResetResult, error) {
 	// Shadow guard: resetting credits via a shadow account would silently
 	// operate on the parent's quota; that is surprising and unwanted. Callers
 	// must reset the parent account directly.
@@ -379,6 +422,10 @@ func (s *OpenAIQuotaService) resetCredit(ctx context.Context, accountID int64, c
 	accessToken, chatGPTAccountID, proxyURL, fedRAMP, err := s.prepareUpstreamCall(ctx, accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(expectedAccount) > 0 && expectedAccount[0] != chatGPTAccountID {
+		return nil, infraerrors.BadRequest("OPENAI_QUOTA_SOURCE_CHANGED", "Account identity changed before redemption")
 	}
 
 	client, err := s.privacyClientFactory(proxyURL)

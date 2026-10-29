@@ -47,8 +47,16 @@
               <button class="btn btn-primary btn-sm" @click="open('add', fleet)">{{ t('fleet.add') }}</button>
               <button class="btn btn-secondary btn-sm" @click="open('expiry', fleet)">{{ t('fleet.adjust') }}</button>
               <button class="btn btn-secondary btn-sm" @click="open('reset', fleet)">{{ t('fleet.reset') }}</button>
+              <button v-if="fleet.platform === 'openai'" class="btn btn-secondary btn-sm" @click="open('reset_sync', fleet)">{{ t('fleet.syncSettings') }}</button>
+              <button class="btn btn-secondary btn-sm" @click="showEvents(fleet)">{{ t('fleet.syncEvents') }}</button>
               <button class="btn btn-secondary btn-sm" @click="open('rename', fleet)">{{ t('fleet.rename') }}</button>
               <button v-if="!currentMembers(fleet).length" class="btn btn-secondary btn-sm" @click="open('archive', fleet)">{{ t('fleet.archive') }}</button>
+            </div>
+            <div v-if="fleet.reset_sync?.enabled" class="mt-3 space-y-1 text-xs text-gray-500" data-reset-sync>
+              <p>{{ t('fleet.syncStatus') }} · {{ syncStatus(fleet.reset_sync.status) }} · #{{ fleet.reset_sync.account_id }}</p>
+              <p>{{ t('fleet.syncObserved') }} · {{ fleet.reset_sync.observed_at ? date(fleet.reset_sync.observed_at) : '—' }}</p>
+              <p>{{ t('fleet.syncNext') }} · {{ fleet.reset_sync.next_reset_at ? date(fleet.reset_sync.next_reset_at) : '—' }}</p>
+              <p v-if="fleet.reset_sync.error_code" class="text-amber-600">{{ t('fleet.syncUnavailable') }} · {{ fleet.reset_sync.error_code }}</p>
             </div>
             <p v-if="isExpired(fleet.expires_at)" class="mt-3 text-xs text-amber-600">{{ t('fleet.expiredHint') }}</p>
           </div>
@@ -98,11 +106,32 @@
         </template>
         <template v-if="mode === 'transfer'"><p class="text-sm text-gray-500">{{ t('fleet.transferHint') }}</p><label class="block text-sm">{{ t('fleet.target') }}<select v-model="targetId" class="input mt-1 w-full" required @change="loadTarget"><option :value="0" disabled>{{ t('fleet.choose') }}</option><option v-for="fleet in targetFleets" :key="fleet.id" :value="fleet.id">{{ fleet.name }} · {{ date(fleet.expires_at) }}</option></select></label><p v-if="!targetFleets.length" class="text-sm text-amber-600">{{ t('fleet.noTarget') }}</p><label v-if="targetExisting && !targetExisting.owner_fleet_id" class="flex items-center gap-2 text-sm"><input v-model="adoptTarget" type="checkbox" required />{{ t('fleet.existing') }} #{{ targetExisting.subscription_id }} · {{ date(targetExisting.expires_at) }}</label></template>
         <template v-if="mode === 'member_expiry'"><label class="flex items-center gap-2 text-sm"><input v-model="independent" type="checkbox" />{{ t('fleet.independent') }}</label><input v-if="independent" v-model="expiry" type="datetime-local" step="1" required class="input w-full" /><p class="text-sm text-gray-500">{{ t('fleet.independentHint') }}</p><p class="text-xs text-gray-400">{{ t('fleet.timezone') }}</p></template>
+        <template v-if="mode === 'reset_sync'">
+          <p class="text-sm text-gray-500">{{ t('fleet.syncHint') }}</p>
+          <label class="flex items-center gap-2 text-sm"><input v-model="syncEnabled" type="checkbox" data-sync-enabled />{{ t('fleet.syncEnabled') }}</label>
+          <label v-if="syncEnabled" class="block text-sm">{{ t('fleet.syncAccount') }}<select v-model="syncAccountId" required class="input mt-1 w-full" data-sync-account><option :value="0" disabled>{{ t('fleet.choose') }}</option><option v-for="source in syncSources" :key="source.id" :value="source.id">{{ source.name }} · #{{ source.id }}</option></select></label>
+          <p v-if="!previewLoading && !syncSources.length" class="text-sm text-amber-600">{{ t('fleet.syncNoSources') }}</p>
+          <p v-if="!syncEnabled && selectedFleet?.reset_sync?.enabled" class="text-sm text-gray-500">{{ t('fleet.syncDisableHint') }}</p>
+        </template>
         <template v-if="mode === 'reset' || mode === 'reset_all'"><p class="text-sm text-gray-500">{{ t('fleet.resetHint') }}</p><div class="flex gap-5"><label v-for="period in periods" :key="period" class="flex items-center gap-2 text-sm"><input v-model="resetPeriods[period]" type="checkbox" />{{ t(`fleet.${period}`) }}</label></div></template>
         <p v-if="mode === 'remove'" class="text-sm text-gray-500">{{ t('fleet.removeHint') }}</p>
         <p v-if="mode === 'archive'" class="text-sm text-gray-500">{{ t('fleet.archiveHint') }}</p>
       </form>
       <template #footer><button class="btn btn-secondary" :disabled="busy" @click="close">{{ t('fleet.cancel') }}</button><button class="btn btn-primary" type="submit" form="fleet-form" :disabled="busy || previewLoading">{{ busy ? t('fleet.loading') : t('fleet.save') }}</button></template>
+    </BaseDialog>
+    <BaseDialog :show="!!historyFleet" :title="t('fleet.syncEvents')" width="wide" @close="historyFleet = undefined; ++historySequence">
+      <p class="mb-3 font-medium">{{ historyFleet?.name }}</p>
+      <p v-if="historyError" role="alert" class="text-sm text-red-600">{{ historyError }}</p>
+      <p v-if="!history.length && !historyLoading" class="text-sm text-gray-500">{{ t('fleet.syncNoEvents') }}</p>
+      <ol class="space-y-3">
+        <li v-for="event in history" :key="event.id" class="rounded-xl border border-gray-200 p-3 text-sm dark:border-dark-600">
+          <p>{{ date(event.created_at) }} · {{ eventSource(event.source) }}</p>
+          <p class="text-xs text-gray-500">#{{ event.account_id }} · {{ t('fleet.syncMembers', { count: event.members }) }}</p>
+          <p v-if="event.before && event.after" class="text-xs text-gray-500">{{ t('fleet.syncUsed', { before: event.before.used, after: event.after.used }) }}</p>
+          <p class="text-xs" :class="event.cache_pending ? 'text-amber-600' : 'text-gray-500'">{{ t(event.cache_pending ? 'fleet.pending' : 'fleet.syncSynced') }}</p>
+        </li>
+      </ol>
+      <template #footer><button v-if="historyMore" class="btn btn-secondary" :disabled="historyLoading" @click="loadEvents(true)">{{ t('fleet.syncMore') }}</button><button class="btn btn-secondary" @click="historyFleet = undefined; ++historySequence">{{ t('fleet.cancel') }}</button></template>
     </BaseDialog>
   </AppLayout>
 </template>
@@ -129,6 +158,9 @@ const app = useAppStore()
 const fleets = ref<Fleet[]>([]), groups = ref<AdminGroup[]>([])
 const accountUsage = ref<Record<number, AccountWeekly[]>>({}), usageLoading = ref(false)
 let usageSequence = 0
+const syncEnabled = ref(false), syncAccountId = ref(0), syncSources = ref<Array<{ id: number; name: string }>>([])
+const historyFleet = ref<Fleet>(), history = ref<api.FleetResetEvent[]>([]), historyLoading = ref(false), historyMore = ref(false), historyError = ref('')
+let historySequence = 0
 const loading = ref(false), busy = ref(false), previewLoading = ref(false)
 const error = ref(''), dialogError = ref('')
 const mode = ref<FleetAction['action'] | null>(null)
@@ -146,7 +178,7 @@ let operationKey = '', operationBody = ''
 const availableGroups = computed(() => groups.value.filter(g => g.subscription_type === 'subscription' && g.status === 'active' && !fleets.value.some(f => f.group_id === g.id)))
 const targetFleets = computed(() => fleets.value.filter(f => f.id !== selectedFleet.value?.id && f.platform === selectedFleet.value?.platform))
 const memberCount = computed(() => new Set(fleets.value.flatMap(f => currentMembers(f).map(m => m.user_id))).size)
-const dialogTitle = computed(() => t(`fleet.${({ create: 'create', add: 'add', remove: 'remove', transfer: 'transfer', expiry: 'adjust', member_expiry: 'memberExpiry', reset: 'reset', reset_all: 'resetAll', rename: 'rename', archive: 'archive' } as Record<string, string>)[mode.value || 'create']}`))
+const dialogTitle = computed(() => t(`fleet.${({ reset_sync: 'syncSettings', create: 'create', add: 'add', remove: 'remove', transfer: 'transfer', expiry: 'adjust', member_expiry: 'memberExpiry', reset: 'reset', reset_all: 'resetAll', rename: 'rename', archive: 'archive' } as Record<string, string>)[mode.value || 'create']}`))
 function currentMembers(f: Fleet) { return f.members.filter(m => m.active) }
 function isExpired(value: string) { return new Date(value).getTime() <= Date.now() }
 function date(value: string) { return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Singapore', dateStyle: 'short', timeStyle: 'medium' }).format(new Date(value)) }
@@ -192,6 +224,23 @@ function open(action: FleetAction['action'], f?: Fleet, m?: FleetMember) {
   targetId.value = 0; targetExisting.value = undefined; adoptTarget.value = false
   resetPeriods.value = { daily: true, weekly: true, monthly: true }; operationKey = ''; operationBody = ''
   if (action === 'add') void loadPreview()
+  if (action === 'reset_sync' && f) { syncEnabled.value = !!f.reset_sync?.enabled; syncAccountId.value = f.reset_sync?.account_id || 0; syncSources.value = []; void loadSyncSources(f.id) }
+}
+function syncStatus(status: string) { return t(`fleet.${({ watching: 'syncWatching', confirming: 'syncConfirming', needs_review: 'syncReview', synced: 'syncSynced', unavailable: 'syncUnavailable', disabled: 'syncDisabled' } as Record<string, string>)[status] || 'syncReview'}`) }
+function eventSource(source: string) { return t(`fleet.${({ scheduled: 'syncScheduled', early: 'syncEarly', manual_credit: 'syncCredit' } as Record<string, string>)[source] || 'syncSource'}`) }
+async function loadSyncSources(id: number) {
+  const seq = ++previewSequence; previewLoading.value = true
+  try { const sources = await api.resetSources(id); if (seq !== previewSequence) return; syncSources.value = sources; if (!syncAccountId.value && sources.length === 1) syncAccountId.value = sources[0].id }
+  catch (e) { if (seq === previewSequence) dialogError.value = errorText(e) }
+  finally { if (seq === previewSequence) previewLoading.value = false }
+}
+function showEvents(f: Fleet) { historyFleet.value = f; history.value = []; historyMore.value = false; void loadEvents() }
+async function loadEvents(more = false) {
+  if (!historyFleet.value) return
+  const seq = ++historySequence; historyLoading.value = true; historyError.value = ''
+  try { const events = await api.resetEvents(historyFleet.value.id, more ? history.value.at(-1)?.id : undefined); if (seq !== historySequence) return; history.value = more ? [...history.value, ...events] : events; historyMore.value = events.length === 20 }
+  catch (e) { if (seq === historySequence) historyError.value = errorText(e) }
+  finally { if (seq === historySequence) historyLoading.value = false }
 }
 async function loadPreview() {
   const seq = ++previewSequence
@@ -214,6 +263,7 @@ async function submit() {
     if (selectedFleet.value) input.fleet_id = selectedFleet.value.id
     if (action === 'create') { input.name = name.value; input.group_id = groupId.value; input.expires_at = toDate(expiry.value); input.members = candidates.value.filter(c => c.selected && !c.blocked).map(memberInput) }
     if (action === 'rename') input.name = name.value
+    if (action === 'reset_sync') { if (syncEnabled.value && !syncAccountId.value) throw new Error(t('fleet.choose')); input.sync_enabled = syncEnabled.value; input.sync_account_id = syncAccountId.value }
     if (action === 'add') { input.members = candidates.value.filter(c => c.selected && !c.blocked).map(memberInput); if (!input.members.length) throw new Error(t('fleet.noSelection')) }
     if (action === 'remove' || action === 'transfer') input.user_id = selectedMember.value!.user_id
     if (action === 'transfer') { if (!targetId.value) throw new Error(t('fleet.choose')); input.target_fleet_id = targetId.value; input.members = [{ user_id: input.user_id!, independent_expiry: selectedMember.value!.independent_expiry, expires_at: selectedMember.value!.expires_at, adopt_existing: adoptTarget.value }] }
@@ -229,5 +279,5 @@ async function submit() {
   } catch (e) { dialogError.value = errorText(e) } finally { busy.value = false }
 }
 onMounted(load)
-onBeforeUnmount(() => { clearTimeout(searchTimer); ++searchSequence; ++previewSequence; ++usageSequence })
+onBeforeUnmount(() => { clearTimeout(searchTimer); ++searchSequence; ++previewSequence; ++usageSequence; ++historySequence })
 </script>

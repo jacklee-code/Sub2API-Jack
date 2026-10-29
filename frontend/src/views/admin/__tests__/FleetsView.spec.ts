@@ -2,8 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FleetsView from '../FleetsView.vue'
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn(), mutate: vi.fn(), groups: vi.fn(), users: vi.fn(), accounts: vi.fn(), batchUsage: vi.fn(), success: vi.fn(), info: vi.fn() }))
-vi.mock('@/api/admin/fleets', () => ({ list: mocks.list, preview: mocks.preview, mutate: mocks.mutate }))
+const mocks = vi.hoisted(() => ({ resetSources: vi.fn(), resetEvents: vi.fn(), list: vi.fn(), preview: vi.fn(), mutate: vi.fn(), groups: vi.fn(), users: vi.fn(), accounts: vi.fn(), batchUsage: vi.fn(), success: vi.fn(), info: vi.fn() }))
+vi.mock('@/api/admin/fleets', () => ({ resetSources: mocks.resetSources, resetEvents: mocks.resetEvents, list: mocks.list, preview: mocks.preview, mutate: mocks.mutate }))
 vi.mock('@/api/admin/groups', () => ({ getAll: mocks.groups }))
 vi.mock('@/api/admin/users', () => ({ list: mocks.users }))
 vi.mock('@/api/admin/accounts', () => ({ list: mocks.accounts, getBatchUsage: mocks.batchUsage }))
@@ -26,6 +26,8 @@ beforeEach(() => {
   vi.resetAllMocks()
   mocks.list.mockResolvedValue([fleet(1), fleet(2)])
   mocks.preview.mockResolvedValue([])
+  mocks.resetSources.mockResolvedValue([{ id: 5, name: 'Reference ChatGPT' }])
+  mocks.resetEvents.mockResolvedValue([])
   mocks.groups.mockResolvedValue([{ id: 30, name: 'Available group', subscription_type: 'subscription', status: 'active' }])
   mocks.mutate.mockResolvedValue({ fleet_id: 1, cache_pending: false })
   mocks.accounts.mockResolvedValue({ items: [] })
@@ -103,6 +105,29 @@ describe('Fleet management', () => {
     await wrapper.get('form').trigger('submit'); await flushPromises()
     expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ action: 'reset_all', daily: false, weekly: true, monthly: false, versions: { 1: 3, 2: 3 } }), expect.any(String))
     expect(mocks.info).toHaveBeenCalledWith('fleet.pending')
+    wrapper.unmount()
+  })
+})
+
+describe('Fleet reset synchronization', () => {
+  it('requires explicit enablement and submits the reference account with the fleet revision', async () => {
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('[data-fleet-id="1"]').findAll('button').find(b => b.text() === 'fleet.syncSettings')!.trigger('click'); await flushPromises()
+    expect(mocks.resetSources).toHaveBeenCalledWith(1)
+    expect((wrapper.get('[data-sync-enabled]').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('[data-sync-enabled]').setValue(true)
+    expect((wrapper.get('[data-sync-account]').element as HTMLSelectElement).value).toBe('5')
+    await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ action: 'reset_sync', fleet_id: 1, sync_enabled: true, sync_account_id: 5, versions: { 1: 3, 2: 3 } }), expect.any(String))
+    wrapper.unmount()
+  })
+  it('shows pending cache synchronization separately from the confirmed upstream reset', async () => {
+    mocks.resetEvents.mockResolvedValue([{ id: 11, account_id: 5, source: 'manual_credit', members: 4, created_at: '2026-10-29T01:00:00Z', cache_pending: true }])
+    const wrapper = render(); await flushPromises()
+    await wrapper.get('[data-fleet-id="1"]').findAll('button').find(b => b.text() === 'fleet.syncEvents')!.trigger('click'); await flushPromises()
+    expect(mocks.resetEvents).toHaveBeenCalledWith(1, undefined)
+    expect(wrapper.text()).toContain('fleet.syncCredit')
+    expect(wrapper.text()).toContain('fleet.pending')
     wrapper.unmount()
   })
 })

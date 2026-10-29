@@ -33,7 +33,12 @@ func (s *SubscriptionService) InvalidateFleetSubscription(ctx context.Context, u
 	return s.invalidateSubscriptionCaches(userID, groupID)
 }
 
-func (s *SubscriptionService) EnableFleetManagement() { s.fleetManagementEnabled = true }
+func (s *SubscriptionService) EnableFleetManagement() {
+	s.fleetManagementEnabled = true
+	if repo, ok := s.userSubRepo.(interface{ EnableFleetResetPolicy() }); ok {
+		repo.EnableFleetResetPolicy()
+	}
+}
 
 // Unlike the generic best-effort invalidator, fleet operations persist retry
 // state until Redis and local authentication caches have both been invalidated.

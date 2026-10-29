@@ -945,6 +945,8 @@ export interface OpenAIQuotaResetCredit {
 }
 
 export interface OpenAIQuotaResetResult {
+  fleet_sync_status?: 'synced' | 'pending' | 'not_enabled'
+  fleet_sync_count?: number
   code: string
   credit?: OpenAIQuotaResetCredit | null
   windows_reset: number
@@ -1005,11 +1007,11 @@ export async function sendOpenAIReferralInvite(
  * timeout: aborting locally would report a successful consumption as a failure
  * and invite a retry that spends a second credit.
  */
-export async function resetOpenAIQuota(id: number): Promise<OpenAIQuotaResetResult> {
+export async function resetOpenAIQuota(id: number, idempotencyKey?: string): Promise<OpenAIQuotaResetResult> {
   const { data } = await apiClient.post<OpenAIQuotaResetResult>(
     `/admin/openai/accounts/${id}/reset-quota`,
     undefined,
-    { timeout: 90_000 }
+    { timeout: 90_000, ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}) }
   )
   return data
 }

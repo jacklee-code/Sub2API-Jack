@@ -93,6 +93,8 @@ func RegisterAdminRoutes(
 		// Jack fleet management
 		if h.Admin.Fleet != nil {
 			admin.GET("/fleets", h.Admin.Fleet.List)
+			admin.GET("/fleets/:id/reset-events", h.Admin.Fleet.ResetEvents)
+			admin.GET("/fleets/:id/reset-sources", h.Admin.Fleet.ResetSources)
 			admin.GET("/fleets/preview/:group_id", h.Admin.Fleet.Preview)
 			admin.POST("/fleets/actions", h.Admin.Fleet.Mutate)
 		}
