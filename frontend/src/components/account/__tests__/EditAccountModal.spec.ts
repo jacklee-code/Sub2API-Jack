@@ -2058,3 +2058,35 @@ describe('EditAccountModal temp-unschedulable rule scope', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('EditAccountModal reserve energy persistence', () => {
+  it('saves the ordered plan with the account and retains unrelated extra', async () => {
+    const account = buildAccount()
+    account.extra = { retained: 'setting' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    wrapper.findComponent({ name: 'ReserveEnergySettings' }).vm.$emit('change', {
+      jack_reserve_enabled: true, jack_reserve_account_ids: [3, 2]
+    })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      retained: 'setting', jack_reserve_enabled: true, jack_reserve_account_ids: [3, 2]
+    })
+    wrapper.unmount()
+  })
+
+  it('drops unsaved plan changes when the modal is reopened', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    wrapper.findComponent({ name: 'ReserveEnergySettings' }).vm.$emit('change', {
+      jack_reserve_enabled: true, jack_reserve_account_ids: [3, 2]
+    })
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.jack_reserve_enabled).not.toBe(true)
+    wrapper.unmount()
+  })
+})

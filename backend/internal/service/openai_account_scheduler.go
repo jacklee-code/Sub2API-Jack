@@ -2323,6 +2323,24 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
+	reserve, reserveExcluded, reserveErr := s.selectJackReserveEnergy(ctx, OpenAIAccountScheduleRequest{
+		GroupID: groupID, Platform: platform, SessionHash: sessionHash,
+		PreviousResponseID: previousResponseID, PreviousResponseCanMove: previousResponseCanMove,
+		RequestedModel: requestedModel, RequiredTransport: requiredTransport,
+		RequiredCapability: requiredCapability, RequiredImageCapability: requiredImageCapability,
+		RequireCompact: requireCompact, ExcludedIDs: excludedIDs,
+		RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID),
+	})
+	if reserveErr != nil {
+		return nil, decision, reserveErr
+	}
+	if reserve != nil && reserve.Account != nil {
+		decision.Layer = "jack_reserve_energy"
+		decision.SelectedAccountID = reserve.Account.ID
+		decision.SelectedAccountType = reserve.Account.Type
+		return reserve, decision, nil
+	}
+	excludedIDs = reserveExcluded
 	preserveGuardianParentBinding := preserveOpenAIGuardianParentBinding(ctx, sessionHash)
 	guardianParentAccountID := int64(0)
 	if strings.TrimSpace(previousResponseID) == "" {

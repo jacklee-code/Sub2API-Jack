@@ -10,6 +10,7 @@ import (
 
 	"log/slog"
 
+	"github.com/Wei-Shaw/sub2api/internal/jackreserve"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -439,7 +440,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			Platform:             item.Platform,
 			Type:                 item.Type,
 			Credentials:          item.Credentials,
-			Extra:                item.Extra,
+			Extra:                jackreserve.WithoutConfig(item.Extra),
 			ProxyID:              proxyID,
 			Concurrency:          item.Concurrency,
 			Priority:             item.Priority,

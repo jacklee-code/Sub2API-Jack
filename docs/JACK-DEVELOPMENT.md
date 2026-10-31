@@ -171,6 +171,72 @@ and enablement remain operator actions. Tests use isolated PostgreSQL and local
 mock HTTP upstreams only: never consume an operator's real reset credits to verify
 this feature.
 
+## Account reserve energy
+
+OpenAI account editing includes an opt-in **Reserve energy / 後備能源** plan.
+`internal/jackreserve` owns its configuration; the gateway integration lives in
+`internal/service/jack_reserve_energy.go`, and the editor in
+`frontend/src/jack/accounts/ReserveEnergySettings.vue`. Small hooks reuse the
+upstream account APIs, scheduler entry point and request failover loops.
+
+- `accounts.extra.jack_reserve_enabled` defaults to false;
+  `jack_reserve_account_ids` holds up to 16 distinct, ordered account IDs. Only
+  existing non-shadow OpenAI accounts may be sources or destinations. Self
+  references are rejected. Plans are single-level: a destination's own plan is
+  never recursively expanded.
+- The primary's group bindings authorize the explicit reserve delegation. A
+  reserve need not join those groups; its own bindings are unchanged. Within
+  the primary's groups the listed destinations are excluded from ordinary
+  weighted/sticky scheduling, including while the primary is healthy. Other
+  groups retain their normal scheduling. Multiple exhausted primary plans are
+  considered by primary priority, then ID; each plan preserves its exact order.
+- An upstream quota cooldown, local API-key quota or quota scheduling pause
+  activates the plan. Manual disablement, expiry and credential/proxy errors on
+  the primary do not activate it. Each new request checks the primary again;
+  quota recovery resumes ordinary primary scheduling, even if sticky state
+  points at a reserve.
+- Spendable Codex **Credit takes precedence over reserves**. A positive or
+  unlimited upstream `codex_credits_snapshot` prevents quota auto-pause from
+  preempting those points. At a full subscription window the primary also gets
+  an upstream attempt when the balance snapshot is missing or stale: 100%
+  subscription usage alone does not prove that paid Credit is unavailable.
+  An actual upstream 429 retains its normal cooldown and permits fallback;
+  the balance display never clears that cooldown. Reset cards are a separate
+  feature, and explicit administrator scheduling restrictions remain effective.
+- Scheduling uses the first eligible destination, waits on its concurrency
+  limit, and advances only when it is unavailable or the existing request
+  failover policy excludes it after an error. The request's failed-ID set
+  prevents repeating a destination. Explicit reserve chains extend the ordinary
+  account-switch budget only as far as their remaining entries. Existing
+  cancellation, partial-output replay guards and first-output timeout caps stay
+  effective. Account-bound `previous_response_id` continuations stay on their
+  original, still-authorized reserve even after primary recovery. If that owner
+  is unavailable they fail rather than replaying through another account; new
+  conversations and requests whose history can move resume primary scheduling.
+- The selected account is the real reserve account, with its own credentials,
+  base URL, model mapping, proxy (or direct connection), concurrency slot and
+  usage accounting. The primary's proxy is never inherited. User/group billing,
+  model/channel restrictions, privacy requirements, profit controls and target
+  availability checks still apply. Account configuration is reread after slot
+  acquisition. No credentials are sent to the browser by this feature.
+- Create/update, bulk update and extra-merge APIs validate the plan. Unrelated
+  extra updates preserve existing plan keys. Scoped administrator API keys do
+  not expose these extra writes. Data imports clear reserve configuration:
+  numeric IDs belong to their original installation, so operators configure the
+  plan again after importing. Ordinary same-installation account copies retain
+  configuration.
+
+This feature uses existing JSONB storage and needs no schema migration. Older
+binaries ignore the plan; disable it before rollback if reserves also have
+ordinary group bindings, since older schedulers do not reserve those IDs.
+An empty discovery result is cached for one second to avoid adding a database
+lookup to every request on installations without plans. Local plan writes
+invalidate this after commit; other instances discover activation within one
+second. Active plans and primary quota state are always read afresh.
+Verification uses synthetic accounts and mock upstreams, never real operator
+Credit, credentials or production records. Publication and deployment follow
+the ordinary contributor workflow and do not enable plans automatically.
+
 ## Chat mode
 
 `/chat` lets users talk to models and generate images in the panel. Conversations,

@@ -449,6 +449,10 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
+	// Avoid a new database lookup on every request when no reserve plans exist.
+	jackReserveEmptyUntil   atomic.Int64
+	jackReserveEmptyVersion atomic.Uint64
+
 	accountRepo           AccountRepository
 	usageLogRepo          UsageLogRepository
 	usageBillingRepo      UsageBillingRepository
