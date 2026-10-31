@@ -452,34 +452,35 @@ type OpenAIGatewayService struct {
 	// Avoid a new database lookup on every request when no reserve plans exist.
 	jackReserveEmptyUntil   atomic.Int64
 	jackReserveEmptyVersion atomic.Uint64
-	accountRepo             AccountRepository
-	usageLogRepo            UsageLogRepository
-	usageBillingRepo        UsageBillingRepository
-	userRepo                UserRepository
-	userSubRepo             UserSubscriptionRepository
-	cache                   GatewayCache
-	cfg                     *config.Config
-	codexDetector           CodexClientRestrictionDetector
-	schedulerSnapshot       *SchedulerSnapshotService
-	concurrencyService      *ConcurrencyService
-	billingService          *BillingService
-	rateLimitService        *RateLimitService
-	billingCacheService     *BillingCacheService
-	userGroupRateResolver   *userGroupRateResolver
-	httpUpstream            HTTPUpstream
-	pluginManager           *PluginManager
-	deferredService         *DeferredService
-	openAITokenProvider     *OpenAITokenProvider
-	grokTokenProvider       *GrokTokenProvider
-	toolCorrector           *CodexToolCorrector
-	openaiWSResolver        OpenAIWSProtocolResolver
-	resolver                *ModelPricingResolver
-	channelService          *ChannelService
-	balanceNotifyService    *BalanceNotifyService
-	settingService          *SettingService
-	userPlatformQuotaRepo   UserPlatformQuotaRepository
-	liveAttestation         liveattestation.Provider
-	liveAttestationCipher   SecretEncryptor
+
+	accountRepo           AccountRepository
+	usageLogRepo          UsageLogRepository
+	usageBillingRepo      UsageBillingRepository
+	userRepo              UserRepository
+	userSubRepo           UserSubscriptionRepository
+	cache                 GatewayCache
+	cfg                   *config.Config
+	codexDetector         CodexClientRestrictionDetector
+	schedulerSnapshot     *SchedulerSnapshotService
+	concurrencyService    *ConcurrencyService
+	billingService        *BillingService
+	rateLimitService      *RateLimitService
+	billingCacheService   *BillingCacheService
+	userGroupRateResolver *userGroupRateResolver
+	httpUpstream          HTTPUpstream
+	pluginManager         *PluginManager
+	deferredService       *DeferredService
+	openAITokenProvider   *OpenAITokenProvider
+	grokTokenProvider     *GrokTokenProvider
+	toolCorrector         *CodexToolCorrector
+	openaiWSResolver      OpenAIWSProtocolResolver
+	resolver              *ModelPricingResolver
+	channelService        *ChannelService
+	balanceNotifyService  *BalanceNotifyService
+	settingService        *SettingService
+	userPlatformQuotaRepo UserPlatformQuotaRepository
+	liveAttestation       liveattestation.Provider
+	liveAttestationCipher SecretEncryptor
 
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once

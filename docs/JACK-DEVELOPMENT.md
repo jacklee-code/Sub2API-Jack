@@ -209,8 +209,10 @@ upstream account APIs, scheduler entry point and request failover loops.
   prevents repeating a destination. Explicit reserve chains extend the ordinary
   account-switch budget only as far as their remaining entries. Existing
   cancellation, partial-output replay guards and first-output timeout caps stay
-  effective. Account-bound `previous_response_id` continuations that cannot move
-  are not replayed through another account.
+  effective. Account-bound `previous_response_id` continuations stay on their
+  original, still-authorized reserve even after primary recovery. If that owner
+  is unavailable they fail rather than replaying through another account; new
+  conversations and requests whose history can move resume primary scheduling.
 - The selected account is the real reserve account, with its own credentials,
   base URL, model mapping, proxy (or direct connection), concurrency slot and
   usage accounting. The primary's proxy is never inherited. User/group billing,

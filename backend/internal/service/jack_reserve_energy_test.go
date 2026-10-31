@@ -342,3 +342,35 @@ func TestJackReserveQuotaPauseVersusTransportFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestJackReservePinnedContinuationKeepsItsAuthorizedOwner(t *testing.T) {
+	svc, repo, req := reserveFixture()
+	req.PreviousResponseID = "resp_reserve_owner"
+	req.PreviousResponseCanMove = false
+	ctx := context.Background()
+	require.NoError(t, svc.getOpenAIWSStateStore().BindResponseAccount(ctx, *req.GroupID, req.PreviousResponseID, 2, time.Hour))
+	for _, recovered := range []bool{false, true} {
+		if recovered {
+			repo.accounts[0].RateLimitResetAt = nil
+		}
+		selection, _, err := svc.selectJackReserveEnergy(ctx, req)
+		require.NoError(t, err)
+		require.EqualValues(t, 2, selection.Account.ID, "a pinned continuation cannot move to primary or the first reserve")
+		require.Equal(t, 1, selection.JackReserveRemaining)
+		selection.ReleaseFunc()
+	}
+	req.ExcludedIDs = map[int64]struct{}{2: {}}
+	selection, _, err := svc.selectJackReserveEnergy(ctx, req)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection, "never replay a pinned continuation through reserve 1")
+	req.ExcludedIDs = nil
+	repo.accounts[0].Schedulable = false
+	selection, _, err = svc.selectJackReserveEnergy(ctx, req)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection, "disabling the primary revokes continuation delegation")
+	otherGroup := int64(88)
+	req.GroupID = &otherGroup
+	selection, _, err = svc.selectJackReserveEnergy(ctx, req)
+	require.NoError(t, err)
+	require.Nil(t, selection, "response ownership is group scoped")
+}

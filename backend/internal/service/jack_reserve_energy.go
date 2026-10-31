@@ -147,11 +147,18 @@ func (s *adminServiceImpl) validateJackReserveExtraPatch(ctx context.Context, id
 
 // Quota recovery is evaluated for every new request. Administrative disablement,
 // credential failures and proxy failures do not activate a primary's reserve.
-func jackReserveQuotaBlocked(ctx context.Context, account *Account) bool {
+func jackReservePrimaryEnabled(account *Account) bool {
 	if account == nil || !account.IsActive() || !account.Schedulable || account.IsShadow() {
 		return false
 	}
 	if account.AutoPauseOnExpired && account.ExpiresAt != nil && !time.Now().Before(*account.ExpiresAt) {
+		return false
+	}
+	return true
+}
+
+func jackReserveQuotaBlocked(ctx context.Context, account *Account) bool {
+	if !jackReservePrimaryEnabled(account) {
 		return false
 	}
 	if account.IsRateLimited() || (account.SupportsAccountQuota() && account.IsQuotaExceeded()) {
@@ -225,11 +232,28 @@ func (s *OpenAIGatewayService) selectJackReserveEnergy(ctx context.Context, req 
 	if s.checkChannelPricingRestriction(ctx, req.GroupID, req.RequestedModel) {
 		return nil, excluded, ErrNoAvailableAccounts
 	}
+	var pinnedID int64
 	if req.PreviousResponseID != "" && !req.PreviousResponseCanMove {
-		return nil, excluded, nil
+		owner, err := s.getOpenAIWSStateStore().GetResponseAccount(ctx, derefGroupID(req.GroupID), strings.TrimSpace(req.PreviousResponseID))
+		if err != nil {
+			return nil, excluded, err
+		}
+		for _, plan := range eligible {
+			for _, id := range plan.config.AccountIDs {
+				if id == owner {
+					pinnedID = owner
+				}
+			}
+		}
+		if pinnedID == 0 {
+			return nil, excluded, nil
+		}
 	}
 	scheduler := &defaultOpenAIAccountScheduler{service: s}
 	canUse := func(account *Account) bool {
+		if pinnedID > 0 && account != nil && !account.IsOpenAIApiKey() && s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
+			return false
+		}
 		return account != nil && account.Platform == PlatformOpenAI && !account.IsShadow() &&
 			isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, account, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability) &&
 			!s.isOpenAIAccountBlockedBySchedulingThreshold(ctx, account) &&
@@ -239,12 +263,15 @@ func (s *OpenAIGatewayService) selectJackReserveEnergy(ctx context.Context, req 
 	for _, plan := range eligible {
 		parent := plan.parent
 		quotaBlocked := jackReserveQuotaBlocked(ctx, parent) || s.isOpenAIAccountBlockedBySchedulingThreshold(ctx, parent)
-		if !quotaBlocked || !supportsOpenAIRequestModel(parent, req.RequestedModel, req.RequireCompact) {
+		if !jackReservePrimaryEnabled(parent) || (pinnedID == 0 && !quotaBlocked) || !supportsOpenAIRequestModel(parent, req.RequestedModel, req.RequireCompact) {
 			continue
 		}
 		// No recursive plans: the administrator's listed destinations are the
 		// complete chain, so cycles cannot cause repeated upstream requests.
 		for index, id := range plan.config.AccountIDs {
+			if pinnedID > 0 && id != pinnedID {
+				continue
+			}
 			if _, failed := req.ExcludedIDs[id]; failed {
 				continue
 			}
@@ -263,8 +290,12 @@ func (s *OpenAIGatewayService) selectJackReserveEnergy(ctx context.Context, req 
 				// Fill first also applies under load: queue for the first healthy
 				// reserve instead of spreading traffic across the later accounts.
 				cfg := s.schedulingConfig()
+				remaining := len(plan.config.AccountIDs) - index
+				if pinnedID > 0 {
+					remaining = 1
+				}
 				return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-					Account: account, JackReserveRemaining: len(plan.config.AccountIDs) - index,
+					Account: account, JackReserveRemaining: remaining,
 					WaitPlan: &AccountWaitPlan{
 						AccountID: account.ID, MaxConcurrency: account.Concurrency,
 						Timeout: cfg.StickySessionWaitTimeout, MaxWaiting: cfg.StickySessionMaxWaiting,
@@ -280,11 +311,18 @@ func (s *OpenAIGatewayService) selectJackReserveEnergy(ctx context.Context, req 
 				}
 				continue
 			}
+			remaining := len(plan.config.AccountIDs) - index
+			if pinnedID > 0 {
+				remaining = 1
+			}
 			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-				Account: fresh, JackReserveRemaining: len(plan.config.AccountIDs) - index,
+				Account: fresh, JackReserveRemaining: remaining,
 				Acquired: true, ReleaseFunc: result.ReleaseFunc,
 			}), excluded, nil
 		}
+	}
+	if pinnedID > 0 {
+		return nil, excluded, ErrNoAvailableAccounts
 	}
 	return nil, excluded, nil
 }
