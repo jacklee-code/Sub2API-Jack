@@ -26,6 +26,14 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <ReserveEnergySettings
+        v-if="account.platform === 'openai' && !account.parent_account_id"
+        :key="`${account.id}-${show}`"
+        :account-id="account.id"
+        :extra="account.extra"
+        @change="reserveExtra = $event"
+      />
+
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
@@ -3402,6 +3410,7 @@ import type {
   OpenCodeGoUsageWindow,
   TempUnschedulableScope
 } from '@/types'
+import ReserveEnergySettings from '@/jack/accounts/ReserveEnergySettings.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -3508,6 +3517,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 const browserTimeZone = getBrowserTimeZone()
+const reserveExtra = ref<Record<string, unknown> | null>(null)
+watch([() => props.show, () => props.account?.id], () => { reserveExtra.value = null })
 
 const selectableGroups = computed(() => {
   const groups = new Map<number, Group>(props.groups.map(group => [group.id, group]))
@@ -5602,6 +5613,9 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
   submitting.value = true
   try {
+    if (reserveExtra.value) {
+      updatePayload.extra = { ...((updatePayload.extra as Record<string, unknown>) || props.account?.extra || {}), ...reserveExtra.value }
+    }
     let updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
     updatedAccount = await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
