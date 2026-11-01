@@ -338,7 +338,7 @@ func effortField(name string) bool {
 	return false
 }
 func privateField(name string) bool {
-	return accountField(name) || name == "upstreammodel" || name == "upstreamresponsemodel" || name == "upstreamreasoningeffort" || name == "modelmappingchain" || name == "modelmapping" || name == "reasoningeffortmappings" || name == "maxreasoningeffort" || name == "maxreasoningeffortoverlimit"
+	return accountField(name) || name == "upstreammodel" || name == "upstreamresponsemodel" || name == "upstreamreasoningeffort" || name == "modelmappingchain" || name == "modelmapping" || name == "reasoningeffortmappings" || name == "maxreasoningeffort"
 }
 func contentField(name string) bool {
 	switch name {

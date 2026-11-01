@@ -35,8 +35,8 @@ func TestMinimalErrorsKeepDiagnosticsAndOnlyMaskRouting(t *testing.T) {
 func TestMinimalMetadataPreservesBudgetsAndOperationalFields(t *testing.T) {
 	p := New(true, false, "application/json", "public-model", nil)
 	CaptureHTTPRequest(WithPolicy(context.Background(), p), []byte(`{"model":"public-model","reasoning":{"effort":"high"},"budget_tokens":4096}`))
-	raw := `{"account":{"id":"acct-private","name":"display-name"},"model":"private-model","reasoning":{"effort":"low","budget_tokens":4096},"thinking_budget":512,"thinking_level":"adaptive","system_fingerprint":"fp-1","organization_id":"org-1","upstream_request_id":"up-1","upstream_model_mismatch":true,"content":{"model":"private-model","budget_tokens":99}}`
-	want := `{"account":{"name":"display-name"},"model":"public-model","reasoning":{"effort":"high","budget_tokens":4096},"thinking_budget":512,"thinking_level":"high","system_fingerprint":"fp-1","organization_id":"org-1","upstream_request_id":"up-1","upstream_model_mismatch":true,"content":{"model":"private-model","budget_tokens":99}}`
+	raw := `{"account":{"id":"acct-private","name":"display-name"},"model":"private-model","reasoning":{"effort":"low","budget_tokens":4096},"max_reasoning_effort_over_limit":"deny","thinking_budget":512,"thinking_level":"adaptive","system_fingerprint":"fp-1","organization_id":"org-1","upstream_request_id":"up-1","upstream_model_mismatch":true,"content":{"model":"private-model","budget_tokens":99}}`
+	want := `{"account":{"name":"display-name"},"model":"public-model","reasoning":{"effort":"high","budget_tokens":4096},"max_reasoning_effort_over_limit":"deny","thinking_budget":512,"thinking_level":"high","system_fingerprint":"fp-1","organization_id":"org-1","upstream_request_id":"up-1","upstream_model_mismatch":true,"content":{"model":"private-model","budget_tokens":99}}`
 	require.JSONEq(t, want, string(p.JSON([]byte(raw))))
 	h := http.Header{"Openai-Model": {"private-model"}, "Chatgpt-Account-Id": {"acct-private"}, "X-System-Fingerprint": {"fp-1"}, "Openai-Organization": {"org-1"}, "X-Codex-Turn-State": {"private-model-opaque-state"}}
 	h.Set("X-Codex-Debug-Message", "private-model unavailable; retry later")

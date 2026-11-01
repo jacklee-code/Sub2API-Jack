@@ -235,7 +235,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		RequirePrivacySet:               g.RequirePrivacySet,
 		RPMLimit:                        g.RPMLimit,
 		MaxReasoningEffort:              publicGroupPrivacyField(g, &g.MaxReasoningEffort),
-		MaxReasoningEffortOverLimit:     publicGroupPrivacyField(g, &g.MaxReasoningEffortOverLimit),
+		MaxReasoningEffortOverLimit:     &g.MaxReasoningEffortOverLimit,
 		ReasoningEffortMappings:         publicGroupPrivacyField(g, &g.ReasoningEffortMappings),
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,

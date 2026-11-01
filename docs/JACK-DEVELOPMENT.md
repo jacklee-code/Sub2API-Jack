@@ -492,7 +492,9 @@ frames, public usage fallbacks and group policies retain the earlier behavior.
   previously unknown values without labels cannot reliably be identified in
   free text. Client content and Codex continuation blobs are not text-scanned.
   No additional upstream calls or full request-body copies are introduced.
-- OpenAI-only group DTOs omit effort mappings/ceilings. Shared Composite group
+- OpenAI-only group DTOs omit effort mappings/ceilings. The over-limit action
+  (deny/downgrade) remains visible because it contains no actual strength value.
+  Shared Composite group
   settings and other providers' settings remain available, so this does not hide
   policies shared across providers. Protection of actual per-request metadata
   follows the resolved provider even for a Composite group.
