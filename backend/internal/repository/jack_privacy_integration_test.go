@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -66,9 +67,25 @@ func TestJackPrivacyUsageProvenanceSurvivesRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	otherDTO := dto.UsageLogFromService(otherRead)
 	require.Equal(t, "anthropic-original", otherRead.RequestedModel)
+	require.NotNil(t, otherDTO.AccountID)
 	require.Equal(t, other.ID, *otherDTO.AccountID)
 	require.Equal(t, "anthropic-original", otherDTO.Model)
+	require.NotNil(t, otherDTO.ReasoningEffort)
 	require.Equal(t, actual, *otherDTO.ReasoningEffort)
+	// Raw list readers also skip association hydration.
+	listed, _, err := r.ListByUser(ctx, u.ID, pagination.PaginationParams{Page: 1, PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+	for i := range listed {
+		row := dto.UsageLogFromService(&listed[i])
+		if listed[i].AccountID == other.ID {
+			require.Equal(t, service.PlatformAnthropic, listed[i].RoutingPrivacyPlatform())
+			require.NotNil(t, row.AccountID)
+		} else {
+			require.Equal(t, service.PlatformOpenAI, listed[i].RoutingPrivacyPlatform())
+			require.Nil(t, row.AccountID)
+		}
+	}
 	stats, err := r.GetModelStatsWithUsageFiltersBySource(ctx, otherRead.CreatedAt.Add(-time.Hour), otherRead.CreatedAt.Add(time.Hour), usagestats.UsageLogFilters{UserID: u.ID}, usagestats.ModelSourcePublicRequested)
 	require.NoError(t, err)
 	var names []string

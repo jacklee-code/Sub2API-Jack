@@ -2,6 +2,11 @@ package repository
 
 import "fmt"
 
+// Resolve only the provider in the existing row query, including readers that
+// intentionally do not hydrate full account/group objects. These are primary-key
+// lookups and never load account credentials or add per-row network round trips.
+const usageRoutingProviderSQL = `COALESCE((SELECT NULLIF(platform, '') FROM accounts WHERE id = usage_logs.account_id), (SELECT NULLIF(platform, '') FROM groups WHERE id = usage_logs.group_id), '')`
+
 // IN subqueries let PostgreSQL build provider ID sets instead of resolving
 // account/group rows separately for every usage record in a model aggregate.
 func openAIUsagePrivacyCondition(alias string) string {
