@@ -377,7 +377,7 @@ func (p *Policy) scrubValue(value any, requested Requested, errorText bool) {
 				delete(node, key)
 				continue
 			}
-			if p.IsGateway() && modelField(name) && !(name == "model" && p.RequestHistory) {
+			if p.IsGateway() && modelField(name) && (name != "model" || !p.RequestHistory) {
 				if requested.Model == "" {
 					delete(node, key)
 				} else {
