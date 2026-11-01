@@ -67,3 +67,13 @@ func TestJackPrivacyUsageKeepsOriginalIngressEvenAfterMapping(t *testing.T) {
 	_, effort = jackRequestedUsageFields(ctx, "mapped-model", &actual)
 	require.Nil(t, effort)
 }
+
+func TestJackPrivacyOtherProviderErrorHistoryUnchanged(t *testing.T) {
+	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity} {
+		input := &OpsErrorLogDetail{OpsErrorLog: OpsErrorLog{Platform: platform, Model: "original-model", Message: "original provider error"}, ErrorBody: `{"error":{"message":"original error"}}`}
+		out := ToUserErrorRequestDetail(input)
+		require.Equal(t, input.Model, out.Model)
+		require.Equal(t, input.Message, out.Message)
+		require.Equal(t, input.ErrorBody, out.ErrorBody)
+	}
+}

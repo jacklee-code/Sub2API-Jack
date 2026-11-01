@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode"
 
 	"github.com/tidwall/gjson"
 )
@@ -36,6 +37,8 @@ type Policy struct {
 	RequestHistory bool // Model values already come from verified requested-model queries.
 	ChatHistory    bool
 	admin          atomic.Bool
+	enabled        atomic.Bool
+	capture        atomic.Bool
 	mu             sync.Mutex
 	prefix         []byte
 	httpCaptured   bool
@@ -47,6 +50,8 @@ type Policy struct {
 func New(gateway, errorHistory bool, contentType, pathModel string, parser EffortParser) *Policy {
 	p := &Policy{ErrorHistory: errorHistory, contentType: contentType, requested: Requested{Model: pathModel}, parseEffort: parser}
 	p.gateway.Store(gateway)
+	p.enabled.Store(true)
+	p.capture.Store(true)
 	return p
 }
 
@@ -64,6 +69,18 @@ func (p *Policy) IsGateway() bool     { return p != nil && p.gateway.Load() }
 func (p *Policy) SetGateway()         { p.gateway.Store(true) }
 func (p *Policy) SetAdmin(admin bool) { p.admin.Store(admin) }
 func (p *Policy) IsAdmin() bool       { return p != nil && p.admin.Load() }
+func (p *Policy) Enabled() bool       { return p != nil && p.enabled.Load() }
+func (p *Policy) CanCapture() bool    { return p != nil && p.capture.Load() }
+func (p *Policy) SetProvider(platform string) {
+	p.enabled.Store(platform == "openai")
+	// Composite routing must retain the ingress before it selects a provider.
+	p.capture.Store(platform == "openai" || platform == "composite")
+}
+func SetProvider(ctx context.Context, platform string) {
+	if p := FromContext(ctx); p != nil {
+		p.SetProvider(platform)
+	}
+}
 
 // Write tees only a bounded prefix of the original request as the existing body
 // limiter/handler reads it. It does not pre-read uploads or bypass body limits.
@@ -74,7 +91,15 @@ func (p *Policy) Write(b []byte) (int, error) {
 		return len(b), nil
 	}
 	if left := MaxRequestPrefix - len(p.prefix); left > 0 {
-		p.prefix = append(p.prefix, b[:min(left, len(b))]...)
+		part := b[:min(left, len(b))]
+		if needed := len(p.prefix) + len(part); needed > cap(p.prefix) {
+			// Grow only for bytes that actually arrived, never Content-Length.
+			capacity := min(MaxRequestPrefix, max(needed, max(512, cap(p.prefix)*2)))
+			grown := make([]byte, len(p.prefix), capacity)
+			copy(grown, p.prefix)
+			p.prefix = grown
+		}
+		p.prefix = append(p.prefix, part...)
 	}
 	return len(b), nil
 }
@@ -131,7 +156,7 @@ func (p *Policy) captureHTTP(body []byte) {
 // shared reader, before preread buffers can be replaced by policy/mapped bodies.
 // It keeps only metadata, without copying large inputs or retaining uploads.
 func CaptureHTTPRequest(ctx context.Context, body []byte) {
-	if p := FromContext(ctx); p != nil {
+	if p := FromContext(ctx); p.CanCapture() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if !p.httpCaptured {
@@ -152,9 +177,6 @@ func (p *Policy) captureJSON(body []byte, followup bool) {
 		p.requested.Model = model
 	}
 	var effort *string
-	if p.parseEffort != nil {
-		effort = p.parseEffort(body, p.requested.Model)
-	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort", "session.reasoning.effort"} {
 		if value := gjson.GetBytes(body, path); value.Exists() {
 			v := strings.TrimSpace(value.String())
@@ -162,10 +184,17 @@ func (p *Policy) captureJSON(body []byte, followup bool) {
 			break
 		}
 	}
+	if effort == nil && p.parseEffort != nil {
+		effort = p.parseEffort(body, p.requested.Model)
+	}
+	if !followup {
+		p.requested.Effort = effort
+		return
+	}
 	// response.create is a new request, including when effort is omitted. Session
 	// updates/continuation frames without settings inherit the selected settings.
 	frameType := gjson.GetBytes(body, "type").String()
-	if !followup || frameType == "response.create" || frameType == "" || effort != nil {
+	if frameType == "response.create" || frameType == "" || effort != nil {
 		p.requested.Effort = effort
 	}
 }
@@ -173,10 +202,14 @@ func (p *Policy) captureJSON(body []byte, followup bool) {
 // CaptureClientFrame must run on the original frame, before any policy/model
 // rewrite. The mutex protects the relay's concurrent upstream/downstream loops.
 func CaptureClientFrame(ctx context.Context, body []byte) {
+	p := FromContext(ctx)
+	if !p.CanCapture() {
+		return
+	}
 	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
 		return
 	}
-	if p := FromContext(ctx); p != nil {
+	if p != nil {
 		p.Requested()
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -186,7 +219,7 @@ func CaptureClientFrame(ctx context.Context, body []byte) {
 
 func ClientFrame(ctx context.Context, body []byte) []byte {
 	p := FromContext(ctx)
-	if p == nil || p.IsAdmin() {
+	if !p.Enabled() || p.IsAdmin() {
 		return body
 	}
 	return p.JSON(body)
@@ -195,14 +228,18 @@ func ClientFrame(ctx context.Context, body []byte) []byte {
 // Media sockets can carry raw audio as well as JSON control envelopes. Only
 // callers that know the frame is media may use this variant.
 func ClientMediaFrame(ctx context.Context, body []byte) []byte {
+	p := FromContext(ctx)
+	if !p.Enabled() || p.IsAdmin() {
+		return body
+	}
 	if !gjson.ValidBytes(body) {
 		return body
 	}
-	return ClientFrame(ctx, body)
+	return p.JSON(body)
 }
 
 func CloseReason(ctx context.Context, reason string) string {
-	if p := FromContext(ctx); p != nil && !p.IsAdmin() && reason != "" {
+	if p := FromContext(ctx); p.Enabled() && !p.IsAdmin() && reason != "" {
 		return "Request ended"
 	}
 	return reason
@@ -211,7 +248,7 @@ func CloseReason(ctx context.Context, reason string) string {
 const GenericError = `{"error":{"type":"upstream_error","message":"Request failed"}}`
 
 func (p *Policy) JSON(body []byte) []byte {
-	if p == nil || p.IsAdmin() {
+	if !p.Enabled() || p.IsAdmin() {
 		return body
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -235,7 +272,7 @@ func (p *Policy) JSON(body []byte) []byte {
 // HTTP failures may use non-OpenAI shapes (detail, plain text, HTML, etc.).
 // Normalize the complete envelope so no provider-specific text escapes in them.
 func (p *Policy) ErrorJSON(body []byte) []byte {
-	if p == nil || p.IsAdmin() {
+	if !p.Enabled() || p.IsAdmin() {
 		return body
 	}
 	var value any
@@ -250,14 +287,21 @@ func (p *Policy) ErrorJSON(body []byte) []byte {
 }
 
 func normalized(key string) string {
-	return strings.ToLower(strings.NewReplacer("_", "", "-", "", ".", "").Replace(key))
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '_', '-', '.':
+			return -1
+		default:
+			return unicode.ToLower(r)
+		}
+	}, key)
 }
 
-func privateField(key string) bool {
-	if strings.Contains(normalized(key), "accountid") {
+func privateField(name string) bool {
+	if strings.Contains(name, "accountid") {
 		return true
 	}
-	switch normalized(key) {
+	switch name {
 	case "account", "accountid", "accountids", "accountname", "chatgptaccountid", "parentaccountid", "parentchatgptaccountid",
 		"organizationid", "upstreammodel", "upstreamresponsemodel", "upstreamreasoningeffort", "upstreammodelmismatch",
 		"upstreamrequestid", "modelmappingchain", "modelmapping", "reasoningeffortmappings", "maxreasoningeffort",
@@ -303,7 +347,7 @@ func (p *Policy) scrub(value any, requested Requested) {
 				delete(node, key)
 				continue
 			}
-			if privateField(key) {
+			if privateField(name) {
 				delete(node, key)
 				continue
 			}
@@ -388,6 +432,9 @@ func safeError(value any) map[string]any {
 			out["code"] = code
 		}
 	}
+	if out["code"] == "context_length_exceeded" || out["type"] == "context_length_exceeded" {
+		out["message"] = "context_length_exceeded"
+	}
 	return out
 }
 func safeErrorType(v string) bool {
@@ -408,35 +455,25 @@ func safeErrorCode(v string) bool {
 // Headers is the final downstream boundary, after specialized header writers.
 // AdditionalAllowed must not re-enable private headers for an ordinary user.
 func (p *Policy) Headers(h http.Header) {
-	if p == nil || p.IsAdmin() {
+	if !p.Enabled() || p.IsAdmin() {
 		return
 	}
 	for key := range h {
 		name := strings.ToLower(key)
-		if strings.Contains(name, "account") || strings.Contains(name, "model") || strings.Contains(name, "effort") || strings.Contains(name, "organization") || strings.Contains(name, "fingerprint") || strings.HasPrefix(name, "x-codex-") {
+		field := normalized(name)
+		identity := strings.Contains(field, "accountid") || strings.Contains(field, "accountuuid") || strings.Contains(field, "accountname") || strings.Contains(field, "organizationid") || strings.HasSuffix(field, "account") || strings.HasSuffix(field, "organization")
+		model := strings.HasSuffix(field, "model") || strings.HasSuffix(field, "modelname") || strings.HasSuffix(field, "modelid") || strings.HasSuffix(field, "modelversion")
+		if identity || model || strings.HasSuffix(field, "effort") || strings.HasSuffix(field, "systemfingerprint") || name == "x-private-route" || name == "x-upstream-route" {
 			delete(h, key)
 			continue
 		}
-		if !p.IsGateway() {
-			continue
-		}
-		if strings.HasPrefix(name, "access-control-") || strings.HasPrefix(name, "sec-websocket-") {
-			continue
-		}
-		switch name {
-		case "content-type", "content-disposition", "content-encoding", "content-length", "cache-control", "date", "vary", "etag", "last-modified", "expires", "retry-after", "x-request-id", "x-reasoning-included", "x-accel-buffering", "connection", "upgrade", "content-security-policy", "strict-transport-security", "x-content-type-options", "x-frame-options", "referrer-policy", "permissions-policy":
-			continue
-		case "location":
-			if strings.HasPrefix(h.Get(key), "/") && !strings.HasPrefix(h.Get(key), "//") {
-				continue
-			}
-		}
-		delete(h, key)
+		// Preserve the gateway's existing header policy. In particular, Codex
+		// turn-state, quota windows and unrelated allowed headers remain intact.
 	}
 }
 
 func (p *Policy) SSE(event []byte) []byte {
-	if p == nil || p.IsAdmin() {
+	if !p.Enabled() || p.IsAdmin() {
 		return event
 	}
 	var data []string

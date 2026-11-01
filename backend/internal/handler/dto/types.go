@@ -157,11 +157,11 @@ type Group struct {
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制），设置后覆盖用户级 rpm_limit。
 	RPMLimit int `json:"rpm_limit"`
 	// MaxReasoningEffort Anthropic/OpenAI 请求的推理强度上限，空字符串表示不限制。
-	MaxReasoningEffort string `json:"-"`
+	MaxReasoningEffort *string `json:"max_reasoning_effort,omitempty"`
 	// MaxReasoningEffortOverLimit 超过上限时的访问控制：downgrade（默认）或 deny。
-	MaxReasoningEffortOverLimit string `json:"-"`
+	MaxReasoningEffortOverLimit *string `json:"max_reasoning_effort_over_limit,omitempty"`
 	// ReasoningEffortMappings Anthropic/OpenAI 推理强度映射，可按模型精确名、前缀或后缀限定。
-	ReasoningEffortMappings []domain.ReasoningEffortMapping `json:"-"`
+	ReasoningEffortMappings *[]domain.ReasoningEffortMapping `json:"reasoning_effort_mappings,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -598,6 +598,7 @@ type BatchUpdateRedeemCodesRequest struct {
 
 // UsageLog 是普通用户接口使用的 usage log DTO（不包含管理员字段）。
 type UsageLog struct {
+	AccountID *int64 `json:"account_id,omitempty"`
 	ID        int64  `json:"id"`
 	UserID    int64  `json:"user_id"`
 	APIKeyID  int64  `json:"api_key_id"`
@@ -685,7 +686,8 @@ type UsageLog struct {
 // AdminUsageLog 是管理员接口使用的 usage log DTO（包含管理员字段）。
 type AdminUsageLog struct {
 	UsageLog
-	AccountID int64 `json:"account_id"`
+	Platform  string `json:"platform,omitempty"`
+	AccountID int64  `json:"account_id"`
 
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Omitted when no mapping was applied (requested model was used as-is).

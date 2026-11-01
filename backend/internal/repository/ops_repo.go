@@ -186,7 +186,7 @@ func opsErrorLogsOrderBy(filter *service.OpsErrorLogFilter) string {
 	case "model":
 		column = "COALESCE(NULLIF(TRIM(e.requested_model), ''), e.model)"
 		if filter != nil && filter.RequestedModelOnly {
-			column = "COALESCE(NULLIF(TRIM(e.requested_model), ''), '')"
+			column = "CASE WHEN " + openAIOpsPrivacyCondition("e") + " THEN COALESCE(NULLIF(TRIM(e.requested_model), ''), '') ELSE " + column + " END"
 		}
 	case "status_code":
 		// 与展示列/过滤保持同义:列表展示 COALESCE(upstream_status_code, status_code, 0),
@@ -1024,7 +1024,7 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	if m := strings.TrimSpace(filter.Model); m != "" {
 		modelColumn := "COALESCE(e.requested_model, e.model, '')"
 		if filter.RequestedModelOnly {
-			modelColumn = "COALESCE(e.requested_model, '')"
+			modelColumn = "CASE WHEN " + openAIOpsPrivacyCondition("e") + " THEN COALESCE(e.requested_model, '') ELSE " + modelColumn + " END"
 		}
 		if filter.ModelFuzzy {
 			args = append(args, "%"+escapeLikePattern(m)+"%")

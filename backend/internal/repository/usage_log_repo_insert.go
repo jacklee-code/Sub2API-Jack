@@ -1296,6 +1296,9 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	upstreamRequestID := nullString(log.UpstreamRequestID)
 	sessionID := nullString(log.SessionID)
 	requestedModel := strings.TrimSpace(log.RequestedModel)
+	if requestedModel == "" && !service.ProtectOpenAIRouting(log.RoutingPrivacyPlatform()) {
+		requestedModel = strings.TrimSpace(log.Model)
+	}
 	upstreamModel := nullString(log.UpstreamModel)
 	upstreamResponseModel := nullString(log.UpstreamResponseModel)
 	upstreamModelMismatch := nullBool(log.UpstreamModelMismatch)

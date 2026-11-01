@@ -41,7 +41,7 @@ func TestResolveModelDimensionExpression(t *testing.T) {
 		want      string
 	}{
 		{usagestats.ModelSourceRequested, "COALESCE(NULLIF(TRIM(requested_model), ''), model)"},
-		{usagestats.ModelSourcePublicRequested, "CASE WHEN jack_request_metadata_verified THEN COALESCE(NULLIF(TRIM(requested_model), ''), 'unknown') ELSE 'unknown' END"},
+		{usagestats.ModelSourcePublicRequested, "CASE WHEN " + openAIUsagePrivacyCondition("") + " THEN CASE WHEN jack_request_metadata_verified THEN COALESCE(NULLIF(TRIM(requested_model), ''), 'unknown') ELSE 'unknown' END ELSE COALESCE(NULLIF(TRIM(requested_model), ''), model) END"},
 		{usagestats.ModelSourceUpstream, "COALESCE(NULLIF(TRIM(upstream_model), ''), model)"},
 		{usagestats.ModelSourceMapping, "(COALESCE(NULLIF(TRIM(requested_model), ''), model) || ' -> ' || COALESCE(NULLIF(TRIM(upstream_model), ''), model))"},
 		{"", "COALESCE(NULLIF(TRIM(requested_model), ''), model)"},
@@ -61,7 +61,7 @@ func TestJackPrivacyUserUsageModelSort(t *testing.T) {
 	r := &usageLogRepository{sql: db}
 	params := pagination.PaginationParams{Page: 1, PageSize: 20, SortBy: "model", SortOrder: "asc"}
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM usage_logs WHERE user_id = $1")).WithArgs(int64(9)).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	expectedOrder := "ORDER BY CASE WHEN jack_request_metadata_verified THEN COALESCE(NULLIF(TRIM(requested_model), ''), 'unknown') ELSE 'unknown' END ASC, id ASC"
+	expectedOrder := "ORDER BY " + resolveModelDimensionExpression(usagestats.ModelSourcePublicRequested) + " ASC, id ASC"
 	mock.ExpectQuery(regexp.QuoteMeta(expectedOrder)).WithArgs(int64(9), 20, 0).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	_, _, err := r.ListWithFilters(context.Background(), params, UsageLogFilters{UserID: 9, ModelFilterSource: usagestats.ModelSourcePublicRequested})
 	require.NoError(t, err)

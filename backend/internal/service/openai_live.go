@@ -447,6 +447,7 @@ func (s *OpenAIGatewayService) dialLiveSideband(ctx context.Context, record *Liv
 	if account == nil || !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityLive) {
 		return nil, ErrLiveUnavailable
 	}
+	jackprivacy.SetProvider(ctx, account.Platform)
 	headers, err := s.liveSidebandHeaders(ctx, account, record)
 	if err != nil {
 		return nil, err

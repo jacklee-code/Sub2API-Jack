@@ -102,6 +102,9 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
+	// RoutingProvider is the selected provider on a newly constructed record.
+	// Persisted records resolve it from their historical account/group links.
+	RoutingProvider string `json:"-"`
 	// LegacyRequestMetadata preserves old values for admins without presenting
 	// formerly coalesced effective values as verified client input.
 	LegacyRequestMetadata bool

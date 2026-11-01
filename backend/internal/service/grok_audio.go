@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
-
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -222,7 +220,7 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 			if grokRealtimeEventHasAudio(msg) {
 				audioObserved.Store(true)
 			}
-			if writeErr := client.Write(ctx, coderws.MessageText, jackprivacy.ClientFrame(ctx, msg)); writeErr != nil {
+			if writeErr := client.Write(ctx, coderws.MessageText, msg); writeErr != nil {
 				errCh <- writeErr
 				return
 			}
@@ -248,7 +246,6 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 				errCh <- fmt.Errorf("invalid realtime event: %w", unmarshalErr)
 				return
 			}
-			jackprivacy.CaptureClientFrame(ctx, raw)
 			if writeErr := conn.WriteJSON(ctx, raw); writeErr != nil {
 				errCh <- writeErr
 				return

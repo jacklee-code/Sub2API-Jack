@@ -381,8 +381,14 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		// Keep the image cache split in the existing usage_logs JSONB payload.
 		imageSizeBreakdown["image_cache_read_tokens"] = result.Usage.ImageCacheReadTokens
 	}
-	requestedModel, requestedEffort := jackRequestedUsageFields(ctx, requestedModel, result.RequestedReasoningEffort)
+	var requestedEffort *string
+	if ProtectOpenAIRouting(account.Platform) {
+		requestedModel, requestedEffort = jackRequestedUsageFields(ctx, requestedModel, result.RequestedReasoningEffort)
+	} else {
+		requestedEffort = coalesceRequestedReasoningEffort(result.RequestedReasoningEffort, result.ReasoningEffort)
+	}
 	usageLog := &UsageLog{
+		RoutingProvider:          account.Platform,
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,
 		AccountID:                account.ID,

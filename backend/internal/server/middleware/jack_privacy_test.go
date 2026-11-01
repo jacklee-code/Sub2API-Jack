@@ -27,7 +27,11 @@ func privacyRouter(role string, output gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(JackRoutingPrivacy())
-	r.Use(func(c *gin.Context) { c.Set(string(ContextKeyUserRole), role); c.Next() })
+	r.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyUserRole), role)
+		c.Set(string(ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}})
+		c.Next()
+	})
 	r.POST("/v1/responses", output)
 	return r
 }
@@ -71,10 +75,12 @@ func TestJackPrivacyJSONHeadersAndAdminEvidence(t *testing.T) {
 			require.Equal(t, "xhigh", gjson.Get(out, "reasoning.effort").String())
 			require.Equal(t, "9007199254740993", gjson.Get(out, "usage.input_tokens").Raw)
 			require.Equal(t, `{"model":"keep-user-data"}`, gjson.Get(out, "output.0.arguments").String())
-			for _, h := range []string{"OpenAI-Model", "X-Account-Id", "X-Reasoning-Effort", "X-Codex-Primary-Used-Percent", "X-Codex-Turn-State", "X-Private-Route"} {
+			for _, h := range []string{"OpenAI-Model", "X-Account-Id", "X-Reasoning-Effort", "X-Private-Route"} {
 				require.Empty(t, rec.Header().Get(h), h)
 			}
 			require.Equal(t, "true", rec.Header().Get("X-Reasoning-Included"))
+			require.Equal(t, "42", rec.Header().Get("X-Codex-Primary-Used-Percent"))
+			require.Equal(t, "opaque-provider-state", rec.Header().Get("X-Codex-Turn-State"))
 		})
 	}
 }
@@ -160,6 +166,7 @@ func TestJackPrivacyWebSocketMultiTurnAndAdmin(t *testing.T) {
 			r.Use(JackRoutingPrivacy())
 			r.GET("/v1/responses", func(c *gin.Context) {
 				c.Set(string(ContextKeyUserRole), role)
+				c.Set(string(ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}})
 				conn, err := coderws.Accept(c.Writer, c.Request, nil)
 				if err != nil {
 					return
@@ -206,7 +213,7 @@ func TestJackPrivacyWebSocketMultiTurnAndAdmin(t *testing.T) {
 	}
 }
 
-func TestJackPrivacyPanelNestedPoliciesAndErrorHistory(t *testing.T) {
+func TestJackPrivacyDoesNotBlanketRewritePanelMetadata(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(JackRoutingPrivacy())
@@ -216,8 +223,8 @@ func TestJackPrivacyPanelNestedPoliciesAndErrorHistory(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/usage/errors/1", nil))
 	out := rec.Body.String()
-	for _, s := range []string{"private-snapshot", "provider-account", "account_id", "reasoning_effort_mappings"} {
-		require.NotContains(t, out, s)
+	for _, value := range []string{"private-snapshot", "provider-account", "account_id", "reasoning_effort_mappings"} {
+		require.Contains(t, out, value)
 	}
 	require.Equal(t, "public-model", gjson.Get(out, "model").String())
 	require.Equal(t, "Public group", gjson.Get(out, "group.name").String())
@@ -228,7 +235,7 @@ func TestJackPrivacyCoversNewGatewayAliasesWithoutPathListChanges(t *testing.T) 
 	r := gin.New()
 	r.Use(JackRoutingPrivacy())
 	r.POST("/future-upstream-alias", func(c *gin.Context) {
-		c.Set(string(ContextKeyAPIKey), &service.APIKey{})
+		c.Set(string(ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}})
 		_, _ = io.ReadAll(c.Request.Body)
 		c.Data(200, "application/json", []byte(privateResponse))
 	})
@@ -243,11 +250,11 @@ func TestJackPrivacyCoversNewGatewayAliasesWithoutPathListChanges(t *testing.T) 
 
 func TestJackPrivacyUsageStatsRetainPublicModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, path := range []string{"/v1/usage", "/antigravity/v1/usage", "/v1/images/batches/job", "/v1beta/cachedContents/cache"} {
+	for _, path := range []string{"/v1/usage", "/antigravity/v1/usage", "/v1/images/batches/job"} {
 		r := gin.New()
 		r.Use(JackRoutingPrivacy())
 		r.GET(path, func(c *gin.Context) {
-			c.Set(string(ContextKeyAPIKey), &service.APIKey{})
+			c.Set(string(ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}})
 			c.JSON(200, gin.H{"model_stats": []any{gin.H{"model": "public-model", "requests": 2}}, "account_id": 73, "error": gin.H{"message": "private-snapshot for provider-account"}})
 		})
 		rec := httptest.NewRecorder()
@@ -259,7 +266,7 @@ func TestJackPrivacyUsageStatsRetainPublicModels(t *testing.T) {
 	}
 }
 
-func TestJackPrivacyOldChatErrorsDoNotExposeProviderDetails(t *testing.T) {
+func TestJackPrivacyDoesNotBlanketRewriteChatHistory(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(JackRoutingPrivacy())
@@ -272,8 +279,8 @@ func TestJackPrivacyOldChatErrorsDoNotExposeProviderDetails(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/chat/conversations/1", nil))
 	out := rec.Body.String()
-	require.NotContains(t, out, "private-model")
-	require.NotContains(t, out, "provider-account")
+	require.Contains(t, out, "private-model")
+	require.Contains(t, out, "provider-account")
 	require.Contains(t, out, "Keep model-generated text")
 	require.Equal(t, "context_length_exceeded", gjson.Get(out, "messages.1.error").String())
 }

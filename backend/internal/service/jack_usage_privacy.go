@@ -9,7 +9,7 @@ import (
 // Use the original authenticated ingress metadata, not a protocol adapter's
 // effective values. Old/background callers without ingress retain their inputs.
 func jackRequestedUsageFields(ctx context.Context, model string, effort *string) (string, *string) {
-	if policy := jackprivacy.FromContext(ctx); policy != nil {
+	if policy := jackprivacy.FromContext(ctx); policy.Enabled() {
 		requested := policy.Requested()
 		return requested.Model, requested.Effort
 	}

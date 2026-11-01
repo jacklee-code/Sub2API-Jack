@@ -745,7 +745,7 @@ func resolveModelDimensionExpressionWithAlias(modelType, alias string) string {
 	upstreamExpr := fmt.Sprintf("COALESCE(NULLIF(TRIM(%s), ''), %s)", column("upstream_model"), column("model"))
 	switch usagestats.NormalizeModelSource(modelType) {
 	case usagestats.ModelSourcePublicRequested:
-		return fmt.Sprintf("CASE WHEN %s THEN COALESCE(NULLIF(TRIM(%s), ''), 'unknown') ELSE 'unknown' END", column("jack_request_metadata_verified"), column("requested_model"))
+		return fmt.Sprintf("CASE WHEN %s THEN CASE WHEN %s THEN COALESCE(NULLIF(TRIM(%s), ''), 'unknown') ELSE 'unknown' END ELSE %s END", openAIUsagePrivacyCondition(alias), column("jack_request_metadata_verified"), column("requested_model"), requestedExpr)
 	case usagestats.ModelSourceUpstream:
 		return upstreamExpr
 	case usagestats.ModelSourceMapping:

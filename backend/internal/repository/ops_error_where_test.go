@@ -74,7 +74,8 @@ func TestJackPrivacyUserErrorModelFilterAndSort(t *testing.T) {
 	filter := &service.OpsErrorLogFilter{Model: "private-model", ModelFuzzy: true, RequestedModelOnly: true, SortBy: "model"}
 	where, _ := buildOpsErrorLogsWhere(filter)
 	for _, expression := range []string{where, opsErrorLogsOrderBy(filter)} {
-		if strings.Contains(expression, "e.model") {
+		protectedBranch := strings.Split(expression, " ELSE ")[0]
+		if strings.Contains(protectedBranch, "e.model") {
 			t.Fatalf("ordinary user can probe effective model: %s", expression)
 		}
 		if !strings.Contains(expression, "e.requested_model") {
