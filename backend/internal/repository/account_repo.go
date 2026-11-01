@@ -1495,7 +1495,7 @@ func (r *accountRepository) BatchUpdateLastUsed(ctx context.Context, updates map
 
 func (r *accountRepository) SetError(ctx context.Context, id int64, errorMsg string) error {
 	_, err := r.client.Account.Update().
-		Where(dbaccount.IDEQ(id)).
+		Where(dbaccount.IDEQ(id), dbaccount.Or(dbaccount.ErrorMessageIsNil(), dbaccount.ErrorMessageNEQ(service.JackOpenAICreditExhaustedMessage))).
 		SetStatus(service.StatusError).
 		SetErrorMessage(errorMsg).
 		SetSchedulable(false).
@@ -1884,7 +1884,7 @@ func (r *accountRepository) ClearError(ctx context.Context, id int64) error {
 		return scoped.ClearError(ctx, id)
 	}
 	_, err := r.client.Account.Update().
-		Where(dbaccount.IDEQ(id)).
+		Where(dbaccount.IDEQ(id), dbaccount.Or(dbaccount.ErrorMessageIsNil(), dbaccount.ErrorMessageNEQ(service.JackOpenAICreditExhaustedMessage))).
 		SetStatus(service.StatusActive).
 		SetErrorMessage("").
 		Save(ctx)

@@ -1,7 +1,8 @@
 <template>
   <div class="flex items-center gap-2">
     <!-- Rate Limit Display (429) - Two-line layout -->
-    <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
+    <CreditExhaustedStatus v-if="creditExhausted" />
+    <div v-else-if="isRateLimited" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
@@ -33,7 +34,7 @@
     </template>
 
     <!-- Error Info Indicator -->
-    <div v-if="hasError && account.error_message" class="group/error relative">
+    <div v-if="hasError && account.error_message && !creditExhausted" class="group/error relative">
       <svg
         class="h-4 w-4 cursor-help text-red-500 transition-colors hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
         fill="none"
@@ -62,7 +63,7 @@
     </div>
 
     <!-- Rate Limit Indicator (429) -->
-    <div v-if="isRateLimited" class="group relative">
+    <div v-if="isRateLimited && !creditExhausted" class="group relative">
       <span
         class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
       >
@@ -162,6 +163,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import CreditExhaustedStatus from '@/jack/accounts/CreditExhaustedStatus.vue'
+import { isCreditExhausted } from '@/jack/accounts/creditExhaustion'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 
@@ -170,6 +173,8 @@ const { t } = useI18n()
 const props = defineProps<{
   account: Account
 }>()
+
+const creditExhausted = computed(() => isCreditExhausted(props.account))
 
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void

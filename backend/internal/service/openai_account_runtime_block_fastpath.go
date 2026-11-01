@@ -108,6 +108,10 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
+	if s != nil && s.rateLimitService != nil && s.rateLimitService.handleJackOpenAICreditExhaustion(stateCtx, account, statusCode, responseBody) {
+		s.BlockAccountScheduling(account, time.Time{}, "jack_openai_credit_exhausted")
+		return true
+	}
 	if account != nil && account.Platform == PlatformOpenAI && isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) {
 		message := "OpenAI upstream account or workspace is unavailable"
 		if upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody)); upstreamMsg != "" {

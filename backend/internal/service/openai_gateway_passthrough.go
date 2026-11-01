@@ -1407,6 +1407,9 @@ var openAIStreamErrorStatusPaths = []string{
 }
 
 func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
+	if jackOpenAICreditExhaustedCode(payload) {
+		return http.StatusTooManyRequests
+	}
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
 	}

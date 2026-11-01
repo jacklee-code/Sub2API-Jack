@@ -58,6 +58,8 @@ type SuccessfulTestRecoveryResult struct {
 // AccountRecoveryOptions 控制账号恢复时的附加行为。
 type AccountRecoveryOptions struct {
 	InvalidateToken bool
+	// Only the explicit administrator Restore status action sets this flag.
+	RestoreExhaustedCredit bool
 }
 
 type geminiUsageCacheEntry struct {
@@ -301,6 +303,9 @@ const (
 // 自定义错误码开启时覆盖后续所有逻辑（包括临时不可调度）。
 func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) ErrorPolicyResult {
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
+	if isJackOfficialOpenAICreditExhaustion(account, statusCode, responseBody) {
+		return ErrorPolicyMatched
+	}
 	if account.IsCustomErrorCodesEnabled() {
 		if account.ShouldHandleErrorCode(statusCode) {
 			return ErrorPolicyMatched
@@ -332,6 +337,9 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
+	if s.handleJackOpenAICreditExhaustion(ctx, account, statusCode, responseBody) {
+		return true
+	}
 	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
 	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
@@ -2222,7 +2230,17 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 
 	result := &SuccessfulTestRecoveryResult{}
-	if account.Status == StatusError {
+	exhaustedCredit := IsJackOpenAICreditExhausted(account)
+	if exhaustedCredit {
+		if !options.RestoreExhaustedCredit {
+			return result, nil
+		}
+		if err := restoreJackOpenAICreditExhausted(ctx, s.accountRepo, accountID); err != nil {
+			return nil, err
+		}
+		result.ClearedError = true
+	}
+	if account.Status == StatusError && !exhaustedCredit {
 		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
 			return nil, err
 		}

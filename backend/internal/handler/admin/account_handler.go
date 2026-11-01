@@ -1336,7 +1336,8 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 	}
 
 	if _, err := h.rateLimitService.RecoverAccountState(c.Request.Context(), accountID, service.AccountRecoveryOptions{
-		InvalidateToken: true,
+		InvalidateToken:        true,
+		RestoreExhaustedCredit: true,
 	}); err != nil {
 		response.ErrorFrom(c, err)
 		return
