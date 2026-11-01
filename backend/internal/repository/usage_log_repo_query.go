@@ -147,9 +147,9 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 		err  error
 	)
 	if shouldUseFastUsageLogTotal(filters) {
-		logs, page, err = r.listUsageLogsWithFastPagination(ctx, whereClause, args, params)
+		logs, page, err = r.listUsageLogsWithFastPagination(ctx, whereClause, args, params, filters.ModelFilterSource)
 	} else {
-		logs, page, err = r.listUsageLogsWithPagination(ctx, whereClause, args, params)
+		logs, page, err = r.listUsageLogsWithPagination(ctx, whereClause, args, params, filters.ModelFilterSource)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -176,7 +176,7 @@ func shouldUseFastUsageLogTotal(filters UsageLogFilters) bool {
 	return filters.UserID == 0 && filters.APIKeyID == 0 && filters.AccountID == 0
 }
 
-func (r *usageLogRepository) listUsageLogsWithPagination(ctx context.Context, whereClause string, args []any, params pagination.PaginationParams) ([]service.UsageLog, *pagination.PaginationResult, error) {
+func (r *usageLogRepository) listUsageLogsWithPagination(ctx context.Context, whereClause string, args []any, params pagination.PaginationParams, modelSource ...string) ([]service.UsageLog, *pagination.PaginationResult, error) {
 	countQuery := "SELECT COUNT(*) FROM usage_logs " + whereClause
 	var total int64
 	if err := scanSingleRow(ctx, r.sql, countQuery, args, &total); err != nil {
@@ -186,7 +186,7 @@ func (r *usageLogRepository) listUsageLogsWithPagination(ctx context.Context, wh
 	limitPos := len(args) + 1
 	offsetPos := len(args) + 2
 	listArgs := append(append([]any{}, args...), params.Limit(), params.Offset())
-	query := fmt.Sprintf("SELECT %s FROM usage_logs %s ORDER BY %s LIMIT $%d OFFSET $%d", usageLogSelectColumns, whereClause, usageLogOrderBy(params), limitPos, offsetPos)
+	query := fmt.Sprintf("SELECT %s FROM usage_logs %s ORDER BY %s LIMIT $%d OFFSET $%d", usageLogSelectColumns, whereClause, usageLogOrderBy(params, modelSource...), limitPos, offsetPos)
 	logs, err := r.queryUsageLogs(ctx, query, listArgs...)
 	if err != nil {
 		return nil, nil, err
@@ -194,14 +194,14 @@ func (r *usageLogRepository) listUsageLogsWithPagination(ctx context.Context, wh
 	return logs, paginationResultFromTotal(total, params), nil
 }
 
-func (r *usageLogRepository) listUsageLogsWithFastPagination(ctx context.Context, whereClause string, args []any, params pagination.PaginationParams) ([]service.UsageLog, *pagination.PaginationResult, error) {
+func (r *usageLogRepository) listUsageLogsWithFastPagination(ctx context.Context, whereClause string, args []any, params pagination.PaginationParams, modelSource ...string) ([]service.UsageLog, *pagination.PaginationResult, error) {
 	limit := params.Limit()
 	offset := params.Offset()
 
 	limitPos := len(args) + 1
 	offsetPos := len(args) + 2
 	listArgs := append(append([]any{}, args...), limit+1, offset)
-	query := fmt.Sprintf("SELECT %s FROM usage_logs %s ORDER BY %s LIMIT $%d OFFSET $%d", usageLogSelectColumns, whereClause, usageLogOrderBy(params), limitPos, offsetPos)
+	query := fmt.Sprintf("SELECT %s FROM usage_logs %s ORDER BY %s LIMIT $%d OFFSET $%d", usageLogSelectColumns, whereClause, usageLogOrderBy(params, modelSource...), limitPos, offsetPos)
 
 	logs, err := r.queryUsageLogs(ctx, query, listArgs...)
 	if err != nil {
@@ -223,7 +223,7 @@ func (r *usageLogRepository) listUsageLogsWithFastPagination(ctx context.Context
 	return logs, paginationResultFromTotal(total, params), nil
 }
 
-func usageLogOrderBy(params pagination.PaginationParams) string {
+func usageLogOrderBy(params pagination.PaginationParams, modelSource ...string) string {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := strings.ToUpper(params.NormalizedSortOrder(pagination.SortOrderDesc))
 
@@ -231,6 +231,9 @@ func usageLogOrderBy(params pagination.PaginationParams) string {
 	switch sortBy {
 	case "model":
 		column = "COALESCE(NULLIF(TRIM(requested_model), ''), model)"
+		if len(modelSource) > 0 && modelSource[0] == usagestats.ModelSourcePublicRequested {
+			column = resolveModelDimensionExpression(usagestats.ModelSourcePublicRequested)
+		}
 	case "created_at":
 		column = "created_at"
 	default:
