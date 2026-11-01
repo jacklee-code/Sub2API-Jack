@@ -47,6 +47,9 @@ func TestListUserErrorRequests_ForcesScopeAndRedacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 强制按用户
+	if !stub.gotFilter.RequestedModelOnly {
+		t.Fatal("RequestedModelOnly not forced")
+	}
 	if stub.gotFilter.UserID == nil || *stub.gotFilter.UserID != uid {
 		t.Fatalf("UserID not forced: %+v", stub.gotFilter.UserID)
 	}

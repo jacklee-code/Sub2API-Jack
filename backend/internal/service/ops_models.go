@@ -131,6 +131,9 @@ type OpsErrorLogFilter struct {
 	Model string
 	// ModelFuzzy 为 true 时 Model 走 ILIKE 模糊匹配（仅用户端启用）；false（默认）保持精确 =，管理端语义不变。
 	ModelFuzzy bool
+	// RequestedModelOnly prevents user filters/sorts from probing an effective
+	// model through a legacy fallback even when the returned DTO hides it.
+	RequestedModelOnly bool
 
 	// ExcludeCountTokens drops count_tokens probe errors (is_count_tokens=true).
 	ExcludeCountTokens bool

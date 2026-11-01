@@ -185,6 +185,9 @@ func opsErrorLogsOrderBy(filter *service.OpsErrorLogFilter) string {
 	switch sortBy {
 	case "model":
 		column = "COALESCE(NULLIF(TRIM(e.requested_model), ''), e.model)"
+		if filter != nil && filter.RequestedModelOnly {
+			column = "COALESCE(NULLIF(TRIM(e.requested_model), ''), '')"
+		}
 	case "status_code":
 		// 与展示列/过滤保持同义:列表展示 COALESCE(upstream_status_code, status_code, 0),
 		// status_code 过滤也用同一表达式,故排序必须一致——否则 recovered upstream 行
@@ -1019,12 +1022,16 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 		clauses = append(clauses, "e.api_key_id = $"+itoa(len(args)))
 	}
 	if m := strings.TrimSpace(filter.Model); m != "" {
+		modelColumn := "COALESCE(e.requested_model, e.model, '')"
+		if filter.RequestedModelOnly {
+			modelColumn = "COALESCE(e.requested_model, '')"
+		}
 		if filter.ModelFuzzy {
 			args = append(args, "%"+escapeLikePattern(m)+"%")
-			clauses = append(clauses, "COALESCE(e.requested_model, e.model, '') ILIKE $"+itoa(len(args)))
+			clauses = append(clauses, modelColumn+" ILIKE $"+itoa(len(args)))
 		} else {
 			args = append(args, m)
-			clauses = append(clauses, "COALESCE(e.requested_model, e.model, '') = $"+itoa(len(args)))
+			clauses = append(clauses, modelColumn+" = $"+itoa(len(args)))
 		}
 	}
 	if filter.ExcludeCountTokens {

@@ -477,6 +477,8 @@ never grant it. API-key context also classifies new gateway aliases automaticall
   quota/turn-state headers. Ordinary clients do not receive upstream turn-state
   optimizations or account-wide quota windows. Necessary transport headers and
   `x-reasoning-included` are retained.
+  User error-model filters/sorts use requested values only, so filtering/counting
+  cannot recover a hidden effective model through the old fallback expression.
 - Gemini cached-content and image-batch public resource DTOs retain the requested
   model saved with the resource, including list/get calls without a new model.
   Batch ZIP error messages/codes are sanitized before compression; the binary
