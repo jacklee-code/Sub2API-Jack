@@ -317,7 +317,7 @@ func (w *jackPrivacyWriter) finish() {
 	} else {
 		body = w.policy.JSON(body)
 	}
-	if json.Valid(body) {
+	if json.Valid(body) && (w.status < 400 || w.failed || w.Header().Get("Content-Type") == "") {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	}
 	_ = w.emit(body)

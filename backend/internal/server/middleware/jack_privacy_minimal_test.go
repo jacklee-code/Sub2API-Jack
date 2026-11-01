@@ -34,3 +34,17 @@ func TestJackPrivacyPlainErrorPreservesStatusContentTypeAndDiagnostics(t *testin
 		}
 	}
 }
+
+func TestJackPrivacyErrorMediaTypesRemainIntact(t *testing.T) {
+	for _, tc := range []struct{ contentType, body string }{
+		{"application/problem+json", `{"detail":"Invalid budget_tokens; minimum is 1024","status":400}`},
+		{"text/plain", "503"},
+	} {
+		router := privacyRouter(service.RoleUser, func(c *gin.Context) { c.Data(400, tc.contentType, []byte(tc.body)) })
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/responses", nil))
+		require.Equal(t, 400, rec.Code)
+		require.Equal(t, tc.contentType, rec.Header().Get("Content-Type"))
+		require.Equal(t, tc.body, rec.Body.String())
+	}
+}
