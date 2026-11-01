@@ -46,7 +46,7 @@ type Policy struct {
 	contentType    string
 	requested      Requested
 	parseEffort    EffortParser
-	secrets        map[string]struct{}
+	secrets        map[string]bool
 }
 
 func New(gateway, errorHistory bool, contentType, pathModel string, parser EffortParser) *Policy {

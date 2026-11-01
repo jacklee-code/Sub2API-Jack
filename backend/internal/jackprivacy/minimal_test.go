@@ -13,6 +13,7 @@ func TestMinimalErrorsKeepDiagnosticsAndOnlyMaskRouting(t *testing.T) {
 	p.Remember("model", "private-model")
 	p.Remember("account_id", "acct-private")
 	for _, tc := range []struct{ in, want string }{
+		{"trace=prefix_acct-private_suffix; /accounts/acct-private/details", "trace=prefix_[redacted]_suffix; /accounts/[redacted]/details"},
 		{"private-model unavailable for acct-private; retry in 30 seconds", "[redacted] unavailable for [redacted]; retry in 30 seconds"},
 		{"account_id=unknown-id; model: unseen-model; reasoning.effort=low", "account_id=[redacted]; model: [redacted]; reasoning.effort=[redacted]"},
 		{"model `unseen-model` does not support parameter 'temperature'", "model `[redacted]` does not support parameter 'temperature'"},

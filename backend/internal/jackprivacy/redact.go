@@ -60,9 +60,9 @@ func (p *Policy) Remember(field, value string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.secrets == nil {
-		p.secrets = make(map[string]struct{})
+		p.secrets = make(map[string]bool)
 	}
-	p.secrets[value] = struct{}{}
+	p.secrets[value] = p.secrets[value] || accountField(name)
 }
 func ObserveUpstreamHeaders(ctx context.Context, h http.Header) {
 	if p := FromContext(ctx); p.Enabled() {
@@ -136,15 +136,23 @@ func (p *Policy) Text(text string) string {
 		return text
 	}
 	p.mu.Lock()
-	secrets := make([]string, 0, len(p.secrets))
-	for value := range p.secrets {
-		secrets = append(secrets, value)
+	type secretValue struct {
+		value   string
+		account bool
+	}
+	secrets := make([]secretValue, 0, len(p.secrets))
+	for value, account := range p.secrets {
+		secrets = append(secrets, secretValue{value, account})
 	}
 	p.mu.Unlock()
-	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
+	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i].value) > len(secrets[j].value) })
 	for _, secret := range secrets {
-		if strings.Contains(text, secret) {
-			text = replaceToken(text, secret)
+		if strings.Contains(text, secret.value) {
+			if secret.account {
+				text = strings.ReplaceAll(text, secret.value, Redacted)
+			} else {
+				text = replaceToken(text, secret.value)
+			}
 		}
 	}
 	requested := p.Requested()
