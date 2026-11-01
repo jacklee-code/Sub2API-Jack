@@ -270,7 +270,7 @@ func (p *Policy) scrub(value any, requested Requested) {
 		for key, child := range node {
 			name := normalized(key)
 			if p.ChatHistory && name == "error" {
-				if message, ok := child.(string); ok && message != "" && message != "context_full" {
+				if message, ok := child.(string); ok && message != "" && message != "context_length_exceeded" {
 					node[key] = "Request failed"
 				}
 				continue

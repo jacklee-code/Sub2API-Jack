@@ -265,7 +265,7 @@ func TestJackPrivacyOldChatErrorsDoNotExposeProviderDetails(t *testing.T) {
 	r.GET("/api/v1/chat/conversations/1", func(c *gin.Context) {
 		c.JSON(200, gin.H{"messages": []any{
 			gin.H{"model": "public-model", "content": "Keep model-generated text", "error": "private-model for provider-account"},
-			gin.H{"error": "context_full"},
+			gin.H{"error": "context_length_exceeded"},
 		}})
 	})
 	rec := httptest.NewRecorder()
@@ -274,7 +274,7 @@ func TestJackPrivacyOldChatErrorsDoNotExposeProviderDetails(t *testing.T) {
 	require.NotContains(t, out, "private-model")
 	require.NotContains(t, out, "provider-account")
 	require.Contains(t, out, "Keep model-generated text")
-	require.Equal(t, "context_full", gjson.Get(out, "messages.1.error").String())
+	require.Equal(t, "context_length_exceeded", gjson.Get(out, "messages.1.error").String())
 }
 
 func TestJackPrivacySSEFlushBeforeFirstEvent(t *testing.T) {
