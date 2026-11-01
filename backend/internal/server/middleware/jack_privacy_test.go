@@ -163,7 +163,7 @@ func TestJackPrivacyWebSocketMultiTurnAndAdmin(t *testing.T) {
 				if err != nil {
 					return
 				}
-				defer conn.CloseNow()
+				defer func() { _ = conn.CloseNow() }()
 				for turn := 0; turn < 2; turn++ {
 					kind, b, err := conn.Read(c.Request.Context())
 					if err != nil {
@@ -181,7 +181,7 @@ func TestJackPrivacyWebSocketMultiTurnAndAdmin(t *testing.T) {
 			defer cancel()
 			conn, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/v1/responses", nil)
 			require.NoError(t, err)
-			defer conn.CloseNow()
+			defer func() { _ = conn.CloseNow() }()
 			for i, frame := range []string{`{"type":"response.create","model":"first-public","reasoning":{"effort":"xhigh"}}`, `{"type":"response.create","model":"second-public"}`} {
 				// Binary JSON frames must receive the same protection as text frames.
 				require.NoError(t, conn.Write(ctx, coderws.MessageBinary, []byte(frame)))

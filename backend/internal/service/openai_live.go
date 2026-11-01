@@ -546,7 +546,7 @@ func (s *OpenAIGatewayService) ProxyLiveSideband(
 				errCh <- liveSidebandReadError(readErr)
 				return
 			}
-			clientPayload := payload
+			var clientPayload []byte
 			if messageType == coderws.MessageBinary {
 				clientPayload = jackprivacy.ClientMediaFrame(ctx, payload)
 			} else {

@@ -23,7 +23,7 @@ func TestJackPrivacyActualWSClientFrameWriter(t *testing.T) {
 				if err != nil {
 					return
 				}
-				defer conn.CloseNow()
+				defer func() { _ = conn.CloseNow() }()
 				p := jackprivacy.New(true, false, "application/json", "", CanonicalRequestedReasoningEffort)
 				p.SetAdmin(admin)
 				ctx := jackprivacy.WithPolicy(r.Context(), p)
@@ -38,7 +38,7 @@ func TestJackPrivacyActualWSClientFrameWriter(t *testing.T) {
 			defer cancel()
 			conn, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
 			require.NoError(t, err)
-			defer conn.CloseNow()
+			defer func() { _ = conn.CloseNow() }()
 			_, body, err := conn.Read(ctx)
 			require.NoError(t, err)
 			if admin {

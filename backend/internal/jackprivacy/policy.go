@@ -443,12 +443,12 @@ func (p *Policy) SSE(event []byte) []byte {
 	var out strings.Builder
 	// Do not relay arbitrary upstream comments, event IDs or custom event names.
 	if strings.HasPrefix(eventType, "response.") || strings.HasPrefix(eventType, "message_") || strings.HasPrefix(eventType, "content_block_") || strings.HasPrefix(eventType, "image_generation.") || strings.HasPrefix(eventType, "image_edit.") || eventType == "error" || eventType == "ping" {
-		out.WriteString("event: ")
-		out.WriteString(eventType)
-		out.WriteByte('\n')
+		_, _ = out.WriteString("event: ")
+		_, _ = out.WriteString(eventType)
+		_ = out.WriteByte('\n')
 	}
-	out.WriteString("data: ")
-	out.WriteString(payload)
-	out.WriteString("\n\n")
+	_, _ = out.WriteString("data: ")
+	_, _ = out.WriteString(payload)
+	_, _ = out.WriteString("\n\n")
 	return []byte(out.String())
 }
