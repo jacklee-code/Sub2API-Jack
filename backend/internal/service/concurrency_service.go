@@ -229,7 +229,8 @@ const (
 
 // ConcurrencyService 管理账号和用户的并发限制。
 type ConcurrencyService struct {
-	cache ConcurrencyCache
+	cache       ConcurrencyCache
+	slotWakeups concurrencySlotWakeups
 
 	accountLoadCacheTTL atomic.Int64
 	accountLoadCacheMu  sync.RWMutex
@@ -364,6 +365,8 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 				defer cancel()
 				if err := s.cache.ReleaseAccountSlot(bgCtx, accountID, requestID); err != nil {
 					logger.LegacyPrintf("service.concurrency", "Warning: failed to release account slot for %d (req=%s): %v", accountID, requestID, err)
+				} else {
+					s.slotWakeups.released(concurrencySlotKey{account: true, id: accountID})
 				}
 			},
 		}, nil
@@ -403,6 +406,8 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 				defer cancel()
 				if err := s.cache.ReleaseUserSlot(bgCtx, userID, requestID); err != nil {
 					logger.LegacyPrintf("service.concurrency", "Warning: failed to release user slot for %d (req=%s): %v", userID, requestID, err)
+				} else {
+					s.slotWakeups.released(concurrencySlotKey{id: userID})
 				}
 			},
 		}, nil

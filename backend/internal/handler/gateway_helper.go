@@ -362,7 +362,16 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 	defer cancel()
 
+	waitContextError := func() error {
+		if err := c.Request.Context().Err(); err != nil {
+			return err
+		}
+		return &ConcurrencyError{SlotType: slotType, IsTimeout: true}
+	}
 	acquireSlot := func() (*service.AcquireResult, error) {
+		if ctx.Err() != nil {
+			return nil, waitContextError()
+		}
 		if slotType == "user" {
 			return h.concurrencyService.AcquireUserSlot(ctx, id, maxConcurrency)
 		}
@@ -377,6 +386,24 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 		if result.Acquired {
 			return result.ReleaseFunc, nil
 		}
+	}
+
+	var wakeCh <-chan struct{}
+	var stopWatching func()
+	if slotType == "user" {
+		wakeCh, stopWatching = h.concurrencyService.WatchUserSlotRelease(id)
+	} else {
+		wakeCh, stopWatching = h.concurrencyService.WatchAccountSlotRelease(id)
+	}
+	defer stopWatching()
+	// A release may have happened between the caller's failed acquisition and
+	// subscribing. Recheck after subscribing so that availability is not lost.
+	result, err := acquireSlot()
+	if err != nil {
+		return nil, err
+	}
+	if result.Acquired {
+		return result.ReleaseFunc, nil
 	}
 
 	// Determine if ping is needed (streaming + ping format defined)
@@ -404,15 +431,10 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 	defer timer.Stop()
 
 	for {
+		polled := false
 		select {
 		case <-ctx.Done():
-			if parentErr := c.Request.Context().Err(); parentErr != nil {
-				return nil, parentErr
-			}
-			return nil, &ConcurrencyError{
-				SlotType:  slotType,
-				IsTimeout: true,
-			}
+			return nil, waitContextError()
 
 		case <-pingCh:
 			// Send ping to keep connection alive
@@ -429,17 +451,24 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 			}
 			recordGatewayStreamHeartbeat(c, written)
 			flusher.Flush()
+			continue
 
 		case <-timer.C:
-			// Try to acquire slot
-			result, err := acquireSlot()
-			if err != nil {
-				return nil, err
-			}
+			polled = true
+		case <-wakeCh:
+			// A hint only: Redis still enforces the same concurrency limit.
+		}
 
-			if result.Acquired {
-				return result.ReleaseFunc, nil
-			}
+		result, err := acquireSlot()
+		if err != nil {
+			return nil, err
+		}
+		if result.Acquired {
+			return result.ReleaseFunc, nil
+		}
+		// Notifications must not postpone polling for releases in other
+		// processes or expired slots, which do not send local notifications.
+		if polled {
 			backoff = nextBackoff(backoff)
 			timer.Reset(backoff)
 		}

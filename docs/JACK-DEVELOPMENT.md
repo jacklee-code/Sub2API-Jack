@@ -77,6 +77,34 @@ automation boundaries, fresh-clone setup, validation and failure handling.
 not maintain separate release rules. This guide contains the implementation and
 recovery details referenced by that workflow.
 
+## Gateway concurrency wakeups
+
+The HTTP gateway wait helper subscribes to process-local user/account slot
+release hints after its immediate acquisition fails. It rechecks Redis after
+subscribing, and successful releases wake one waiter for the same scope and ID.
+The shared buffered hint is passed on when a waiter exits, so cancellation does
+not strand a notification and coalesced releases can fill multiple free slots.
+Idle subscriptions are removed; the notification registry owns no concurrency
+slots and starts no background goroutines.
+
+Redis remains authoritative for acquisition and the existing concurrency and
+queue limits are unchanged. The original jittered polling, timeout and stream
+heartbeats remain active for remote-instance releases, slot expiry and failed
+release operations. These hints do not provide a global FIFO ordering guarantee.
+There are no new configuration keys, database migrations or model/tier changes.
+
+Run the focused tests with:
+
+```sh
+cd backend
+go test -tags=unit ./internal/service ./internal/handler -run 'Test(SlotWakeups|ConcurrencySlotWakeup|AcquireUserSlotWithWait|WaitForSlotWithPingTimeout|AcquireAccountSlotWithWaitTimeout)'
+```
+
+The handler regression uses a virtual clock to reproduce the long polling
+backoff without slowing the suite. The Redis-backed burst test runs the real
+acquisition scripts against isolated miniredis and checks the concurrency cap,
+slot cleanup and bounded acquisition attempts. Production Redis is not used.
+
 ## Fleet behavior
 
 Each group has at most one live fleet. Membership owns the subscription even after
