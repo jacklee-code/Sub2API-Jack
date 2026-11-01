@@ -386,6 +386,9 @@ func (p *Policy) scrubValue(value any, requested Requested, errorText bool) {
 			}
 			nestedError := errorText || name == "error"
 			if str, ok := child.(string); ok && nestedError {
+				if param, ok := node["param"].(string); ok && name == "message" {
+					str = p.parameterMessage(str, param)
+				}
 				node[key] = p.Text(str)
 				continue
 			}

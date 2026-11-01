@@ -17,6 +17,7 @@ func TestMinimalErrorsKeepDiagnosticsAndOnlyMaskRouting(t *testing.T) {
 		{"account_id=unknown-id; model: unseen-model; reasoning.effort=low", "account_id=[redacted]; model: [redacted]; reasoning.effort=[redacted]"},
 		{"model `unseen-model` does not support parameter 'temperature'", "model `[redacted]` does not support parameter 'temperature'"},
 		{"Invalid budget_tokens: minimum is 1024; high load; request_id=req-42", "Invalid budget_tokens: minimum is 1024; high load; request_id=req-42"},
+		{"rejected low effort; retry later", "rejected [redacted] effort; retry later"},
 		{"model: public-model; unrelated-private-model-suffix", "model: public-model; unrelated-private-model-suffix"},
 	} {
 		require.Equal(t, tc.want, p.Text(tc.in), tc.in)
@@ -25,6 +26,7 @@ func TestMinimalErrorsKeepDiagnosticsAndOnlyMaskRouting(t *testing.T) {
 	want := `{"error":{"type":"custom_provider_error","code":"model_not_found","message":"[redacted] unavailable for [redacted]; retry in 30 seconds","param":"temperature","details":{"budget_tokens":1024,"retry_after":30}},"request_id":"req-42"}`
 	require.JSONEq(t, want, string(p.ErrorJSON([]byte(raw))))
 	require.Equal(t, "Retry in 30 seconds for [redacted]", CloseReason(WithPolicy(context.Background(), p), "Retry in 30 seconds for private-model"))
+	require.JSONEq(t, `{"error":{"param":"reasoning.effort","message":"Unsupported value: '[redacted]'; supported values: 'medium' and 'high'."}}`, string(p.ErrorJSON([]byte(`{"error":{"param":"reasoning.effort","message":"Unsupported value: 'low'; supported values: 'medium' and 'high'."}}`))))
 	p.SetAdmin(true)
 	require.Equal(t, raw, string(p.ErrorJSON([]byte(raw))))
 }

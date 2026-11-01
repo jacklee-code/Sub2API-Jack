@@ -16,6 +16,27 @@ var labelledValue = regexp.MustCompile("(?i)\\b((?:chatgpt[-_. ]?)?account(?:[-_
 var labelledEffort = regexp.MustCompile("(?i)(\\b(?:reasoning[-_. ]+)?effort\\s+(?:is\\s+)?)(none|minimal|low|medium|high|xhigh|max|auto)\\b")
 var accountUUID = regexp.MustCompile("(?i)(\\baccount\\s+)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\\b")
 
+var reverseEffort = regexp.MustCompile(`(?i)\b(none|minimal|low|medium|high|xhigh|max|auto)(\s+(?:reasoning\s+)?effort)\b`)
+var invalidParameterValue = regexp.MustCompile("(?i)((?:unsupported|invalid|unknown) value\\s*:?\\s*[\"'`])([^\"'`]+)")
+
+func (p *Policy) parameterMessage(message, param string) string {
+	name := normalized(param)
+	if !modelField(name) && !effortField(name) && !accountField(name) {
+		return message
+	}
+	requested := p.Requested()
+	return invalidParameterValue.ReplaceAllStringFunc(message, func(match string) string {
+		parts := invalidParameterValue.FindStringSubmatch(match)
+		if modelField(name) && parts[2] == requested.Model {
+			return match
+		}
+		if effortField(name) && requested.Effort != nil && parts[2] == *requested.Effort {
+			return match
+		}
+		return parts[1] + Redacted
+	})
+}
+
 // Remember only records routing metadata, never edits an outgoing request.
 func Remember(ctx context.Context, field, value string) {
 	if p := FromContext(ctx); p.Enabled() {
@@ -143,6 +164,13 @@ func (p *Policy) Text(text string) string {
 			return match
 		}
 		return parts[1] + Redacted
+	})
+	text = reverseEffort.ReplaceAllStringFunc(text, func(match string) string {
+		parts := reverseEffort.FindStringSubmatch(match)
+		if requested.Effort != nil && parts[1] == *requested.Effort {
+			return match
+		}
+		return Redacted + parts[2]
 	})
 	return accountUUID.ReplaceAllString(text, "${1}"+Redacted)
 }
