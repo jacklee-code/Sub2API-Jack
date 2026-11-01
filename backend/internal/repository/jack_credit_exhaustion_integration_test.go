@@ -57,13 +57,16 @@ func TestJackCreditRestoreOutboxFailureRollsBack(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
 	account := mustCreateAccount(t, client, &service.Account{
-		Name: "exhausted-credit-rollback", Status: service.StatusError,
+		Name: "exhausted-credit-rollback", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusError,
 		ErrorMessage: service.JackOpenAICreditExhaustedMessage, Schedulable: false,
 	})
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID)
 		_ = client.Account.DeleteOneID(account.ID).Exec(context.Background())
 	})
+	// mustCreateAccount defaults scheduling to true, even when false is supplied.
+	// Set the real held state explicitly before provoking the failed restore.
+	require.NoError(t, client.Account.UpdateOneID(account.ID).SetSchedulable(false).Exec(ctx))
 	repo := newAccountRepositoryWithSQL(client, &failAtomicSchedulerOutboxSQLExecutor{sqlExecutor: integrationDB}, nil)
 	restored, err := repo.RestoreJackOpenAICreditExhausted(ctx, account.ID)
 	require.Error(t, err)
