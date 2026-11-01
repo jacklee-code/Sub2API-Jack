@@ -20,7 +20,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const privateResponse = `{"id":"resp_public","model":"private-snapshot","account_id":"provider-account","chatgpt_account_id":"provider-uuid","reasoning":{"effort":"low","summary":"auto"},"usage":{"input_tokens":9007199254740993},"output":[{"type":"function_call","arguments":"{\"model\":\"keep-user-data\"}"}]}`
+const privateResponse = `{"budget_tokens":4096,"upstream_model_mismatch":true,"id":"resp_public","model":"private-snapshot","account_id":"provider-account","chatgpt_account_id":"provider-uuid","reasoning":{"effort":"low","summary":"auto"},"usage":{"input_tokens":9007199254740993},"output":[{"type":"function_call","arguments":"{\"model\":\"keep-user-data\"}"}]}`
 const clientRequest = `{"model":"public-model","reasoning":{"effort":"xhigh"},"input":"hi"}`
 
 func privacyRouter(role string, output gin.HandlerFunc) *gin.Engine {
@@ -71,13 +71,16 @@ func TestJackPrivacyJSONHeadersAndAdminEvidence(t *testing.T) {
 			for _, secret := range []string{"private-snapshot", "provider-account", "provider-uuid", "opaque-provider-state"} {
 				require.NotContains(t, out, secret)
 			}
+			require.Equal(t, int64(4096), gjson.Get(out, "budget_tokens").Int())
+			require.True(t, gjson.Get(out, "upstream_model_mismatch").Bool())
 			require.Equal(t, "public-model", gjson.Get(out, "model").String())
 			require.Equal(t, "xhigh", gjson.Get(out, "reasoning.effort").String())
 			require.Equal(t, "9007199254740993", gjson.Get(out, "usage.input_tokens").Raw)
 			require.Equal(t, `{"model":"keep-user-data"}`, gjson.Get(out, "output.0.arguments").String())
-			for _, h := range []string{"OpenAI-Model", "X-Account-Id", "X-Reasoning-Effort", "X-Private-Route"} {
+			for _, h := range []string{"OpenAI-Model", "X-Account-Id", "X-Reasoning-Effort"} {
 				require.Empty(t, rec.Header().Get(h), h)
 			}
+			require.Equal(t, "[redacted]", rec.Header().Get("X-Private-Route"))
 			require.Equal(t, "true", rec.Header().Get("X-Reasoning-Included"))
 			require.Equal(t, "42", rec.Header().Get("X-Codex-Primary-Used-Percent"))
 			require.Equal(t, "opaque-provider-state", rec.Header().Get("X-Codex-Turn-State"))
@@ -131,6 +134,9 @@ func TestJackPrivacyErrorsMissingRequestAndEncoding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := privacyRouter(service.RoleUser, func(c *gin.Context) {
 				_, _ = io.ReadAll(c.Request.Body)
+				p := jackprivacy.FromContext(c.Request.Context())
+				p.Remember("model", "private-snapshot")
+				p.Remember("account_id", "provider-account")
 				b := []byte(tc.body)
 				if tc.encoding != "" {
 					var zipped bytes.Buffer
@@ -199,6 +205,8 @@ func TestJackPrivacyWebSocketMultiTurnAndAdmin(t *testing.T) {
 					require.Equal(t, privateResponse, string(body))
 					continue
 				}
+				require.Equal(t, int64(4096), gjson.GetBytes(body, "budget_tokens").Int())
+				require.True(t, gjson.GetBytes(body, "upstream_model_mismatch").Bool())
 				require.NotContains(t, string(body), "private-snapshot")
 				require.NotContains(t, string(body), "provider-account")
 				if i == 0 {
@@ -255,12 +263,12 @@ func TestJackPrivacyUsageStatsRetainPublicModels(t *testing.T) {
 		r.Use(JackRoutingPrivacy())
 		r.GET(path, func(c *gin.Context) {
 			c.Set(string(ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}})
-			c.JSON(200, gin.H{"model_stats": []any{gin.H{"model": "public-model", "requests": 2}}, "account_id": 73, "error": gin.H{"message": "private-snapshot for provider-account"}})
+			c.JSON(200, gin.H{"model_stats": []any{gin.H{"model": "public-model", "requests": 2}}, "account_id": 73, "error": gin.H{"message": "model: private-snapshot for account_id=provider-account"}})
 		})
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		require.Equal(t, "public-model", gjson.Get(rec.Body.String(), "model_stats.0.model").String())
-		require.NotContains(t, rec.Body.String(), "account_id")
+		require.False(t, gjson.Get(rec.Body.String(), "account_id").Exists())
 		require.NotContains(t, rec.Body.String(), "private-snapshot")
 		require.NotContains(t, rec.Body.String(), "provider-account")
 	}
@@ -337,7 +345,7 @@ func TestJackPrivacySSECarriageReturnLines(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "private-snapshot")
 	require.NotContains(t, rec.Body.String(), "provider-account")
 	require.Contains(t, rec.Body.String(), `"model":"public-model"`)
-	require.Contains(t, rec.Body.String(), "data: [DONE]\n\n")
+	require.Contains(t, rec.Body.String(), "data: [DONE]\r\r")
 }
 
 func TestJackPrivacyLargeCompressedIngressAndMappedReread(t *testing.T) {

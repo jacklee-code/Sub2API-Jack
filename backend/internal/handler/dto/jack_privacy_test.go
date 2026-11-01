@@ -12,6 +12,8 @@ import (
 func TestJackUserMetadataAndAdminPreservation(t *testing.T) {
 	requested, actual, upstream := "xhigh", "low", "private-model"
 	log := &service.UsageLog{AccountID: 73, Model: "private-model", RequestedModel: "public-model", RequestedReasoningEffort: &requested, ReasoningEffort: &actual, UpstreamModel: &upstream}
+	mismatch := true
+	log.UpstreamModelMismatch = &mismatch
 	user, err := json.Marshal(UsageLogFromService(log))
 	require.NoError(t, err)
 	require.NotContains(t, string(user), "account_id")
@@ -20,6 +22,7 @@ func TestJackUserMetadataAndAdminPreservation(t *testing.T) {
 	admin, err := json.Marshal(UsageLogFromServiceAdmin(log))
 	require.NoError(t, err)
 	require.Contains(t, string(admin), `"account_id":73`)
+	require.Contains(t, string(admin), `"upstream_model_mismatch":true`)
 	require.Contains(t, string(admin), `"upstream_model":"private-model"`)
 	require.Contains(t, string(admin), `"upstream_reasoning_effort":"low"`)
 	log.LegacyRequestMetadata = true
@@ -33,7 +36,9 @@ func TestJackUserMetadataAndAdminPreservation(t *testing.T) {
 	group := &service.Group{Platform: service.PlatformOpenAI, MaxReasoningEffort: "low", ReasoningEffortMappings: []domain.ReasoningEffortMapping{{From: "xhigh", To: "low"}}}
 	user, err = json.Marshal(GroupFromService(group))
 	require.NoError(t, err)
-	require.NotContains(t, string(user), "reasoning_effort")
+	require.NotContains(t, string(user), `"max_reasoning_effort":`)
+	require.NotContains(t, string(user), `"reasoning_effort_mappings":`)
+	require.Contains(t, string(user), `"max_reasoning_effort_over_limit":""`)
 	admin, err = json.Marshal(GroupFromServiceAdmin(group))
 	require.NoError(t, err)
 	require.Contains(t, string(admin), `"max_reasoning_effort":"low"`)

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"net/http"
+
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 )
 
 func setOpenAIChatGPTAccountHeaders(headers http.Header, account *Account) {
@@ -28,5 +30,6 @@ func resolveAndSetOpenAIChatGPTAccountHeaders(ctx context.Context, repo AccountR
 		return err
 	}
 	setOpenAIChatGPTAccountHeaders(headers, credAccount)
+	jackprivacy.ObserveUpstreamHeaders(ctx, headers)
 	return nil
 }
