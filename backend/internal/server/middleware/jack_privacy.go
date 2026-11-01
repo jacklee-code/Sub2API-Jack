@@ -172,23 +172,35 @@ func (w *jackPrivacyWriter) Write(data []byte) (int, error) {
 
 func (w *jackPrivacyWriter) consumeEvents() {
 	for w.scan < len(w.buffer) {
-		i := bytes.IndexByte(w.buffer[w.scan:], '\n')
+		i := bytes.IndexAny(w.buffer[w.scan:], "\r\n")
 		if i < 0 {
 			w.scan = len(w.buffer)
 			return
 		}
 		i += w.scan
-		line := bytes.TrimSuffix(w.buffer[w.lineStart:i], []byte("\r"))
-		w.scan = i + 1
-		if len(line) == 0 {
-			if w.err = w.emit(w.policy.SSE(w.buffer[:i+1])); w.err != nil {
+		end := i + 1
+		if w.buffer[i] == '\r' {
+			// A CR at a write boundary may be the first byte of CRLF. Wait
+			// for the next byte to avoid treating CRLF as two line endings.
+			if end == len(w.buffer) {
+				w.scan = i
 				return
 			}
-			w.buffer = w.buffer[i+1:]
+			if w.buffer[end] == '\n' {
+				end++
+			}
+		}
+		line := w.buffer[w.lineStart:i]
+		w.scan = end
+		if len(line) == 0 {
+			if w.err = w.emit(w.policy.SSE(w.buffer[:end])); w.err != nil {
+				return
+			}
+			w.buffer = w.buffer[end:]
 			w.scan = 0
 			w.lineStart = 0
 		} else {
-			w.lineStart = i + 1
+			w.lineStart = end
 		}
 	}
 }

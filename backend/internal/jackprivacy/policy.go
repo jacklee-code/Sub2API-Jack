@@ -421,7 +421,8 @@ func (p *Policy) SSE(event []byte) []byte {
 	}
 	var data []string
 	var eventType string
-	for _, line := range strings.Split(strings.ReplaceAll(string(event), "\r\n", "\n"), "\n") {
+	lines := strings.ReplaceAll(strings.ReplaceAll(string(event), "\r\n", "\n"), "\r", "\n")
+	for _, line := range strings.Split(lines, "\n") {
 		if strings.HasPrefix(line, "data:") {
 			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		}

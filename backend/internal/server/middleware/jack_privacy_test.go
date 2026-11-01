@@ -310,3 +310,24 @@ func TestJackPrivacyRoleAvailableBeforeArchiveCompression(t *testing.T) {
 		require.Equal(t, []byte{0x50, 0x4b, 0x03, 0x04}, rec.Body.Bytes())
 	}
 }
+
+func TestJackPrivacySSECarriageReturnLines(t *testing.T) {
+	r := privacyRouter(service.RoleUser, func(c *gin.Context) {
+		_, _ = io.ReadAll(c.Request.Body)
+		c.Header("Content-Type", "text/event-stream")
+		stream := "event: response.completed\rdata: " + privateResponse + "\r\rdata: [DONE]\r\r"
+		for _, b := range []byte(stream) {
+			_, err := c.Writer.Write([]byte{b})
+			require.NoError(t, err)
+			c.Writer.Flush()
+		}
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(clientRequest))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	require.NotContains(t, rec.Body.String(), "private-snapshot")
+	require.NotContains(t, rec.Body.String(), "provider-account")
+	require.Contains(t, rec.Body.String(), `"model":"public-model"`)
+	require.Contains(t, rec.Body.String(), "data: [DONE]\n\n")
+}
