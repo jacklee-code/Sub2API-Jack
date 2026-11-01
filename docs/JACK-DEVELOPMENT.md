@@ -464,6 +464,11 @@ never grant it. API-key context also classifies new gateway aliases automaticall
   and media are not rewritten. This protects protocol metadata, not claims that a
   model generates in its text. SSE events are assembled across arbitrary write
   boundaries; JSON and individual events have a 64 MiB fail-closed buffer limit.
+  The shared body reader captures metadata from the first decoded ingress body,
+  so compressed requests and fields after large inputs work without keeping a
+  second body copy. Subsequent mapped preread bodies cannot replace the capture.
+  Other streaming readers use a bounded 1 MiB original-prefix fallback; missing
+  fields remain unknown rather than falling back to effective settings.
 - Ordinary usage DTOs omit `account_id`; group DTOs omit effort mappings/ceilings.
   User error history and gateway error envelopes use generic messages and retain
   only known machine error types/codes. Provider-specific error details remain in

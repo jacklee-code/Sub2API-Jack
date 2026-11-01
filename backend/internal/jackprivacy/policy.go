@@ -38,6 +38,7 @@ type Policy struct {
 	admin          atomic.Bool
 	mu             sync.Mutex
 	prefix         []byte
+	httpCaptured   bool
 	contentType    string
 	requested      Requested
 	parseEffort    EffortParser
@@ -69,6 +70,9 @@ func (p *Policy) IsAdmin() bool       { return p != nil && p.admin.Load() }
 func (p *Policy) Write(b []byte) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.httpCaptured {
+		return len(b), nil
+	}
 	if left := MaxRequestPrefix - len(p.prefix); left > 0 {
 		p.prefix = append(p.prefix, b[:min(left, len(b))]...)
 	}
@@ -123,7 +127,23 @@ func (p *Policy) captureHTTP(body []byte) {
 	}
 }
 
+// CaptureHTTPRequest receives the first fully decoded ingress body from the
+// shared reader, before preread buffers can be replaced by policy/mapped bodies.
+// It keeps only metadata, without copying large inputs or retaining uploads.
+func CaptureHTTPRequest(ctx context.Context, body []byte) {
+	if p := FromContext(ctx); p != nil {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if !p.httpCaptured {
+			p.captureHTTP(body)
+			p.httpCaptured = true
+			p.prefix = nil
+		}
+	}
+}
+
 func (p *Policy) captureJSON(body []byte, followup bool) {
+	body = bytes.TrimPrefix(body, []byte{0xef, 0xbb, 0xbf})
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	if model == "" {
 		model = strings.TrimSpace(gjson.GetBytes(body, "session.model").String())

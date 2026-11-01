@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
@@ -330,4 +331,37 @@ func TestJackPrivacySSECarriageReturnLines(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "provider-account")
 	require.Contains(t, rec.Body.String(), `"model":"public-model"`)
 	require.Contains(t, rec.Body.String(), "data: [DONE]\n\n")
+}
+
+func TestJackPrivacyLargeCompressedIngressAndMappedReread(t *testing.T) {
+	for _, compressed := range []bool{false, true} {
+		r := privacyRouter(service.RoleUser, func(c *gin.Context) {
+			_, err := httputil.ReadRequestBodyWithPrealloc(c.Request)
+			require.NoError(t, err)
+			// A later middleware/handler read must not recapture mapped settings.
+			c.Request.Body = httputil.NewPrereadBody([]byte(`{"model":"private-snapshot","reasoning":{"effort":"low"}}`))
+			_, err = httputil.ReadRequestBodyWithPrealloc(c.Request)
+			require.NoError(t, err)
+			c.Data(200, "application/json", []byte(privateResponse))
+		})
+		body := []byte(`{"input":"` + strings.Repeat("x", jackprivacy.MaxRequestPrefix+16) + `","model":"public-model","reasoning":{"effort":"xhigh"}}`)
+		if compressed {
+			var encoded bytes.Buffer
+			gz := gzip.NewWriter(&encoded)
+			_, err := gz.Write(body)
+			require.NoError(t, err)
+			require.NoError(t, gz.Close())
+			body = encoded.Bytes()
+		}
+		req := httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if compressed {
+			req.Header.Set("Content-Encoding", "gzip")
+		}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		require.Equal(t, "public-model", gjson.Get(rec.Body.String(), "model").String())
+		require.Equal(t, "xhigh", gjson.Get(rec.Body.String(), "reasoning.effort").String())
+		require.NotContains(t, rec.Body.String(), "private-snapshot")
+	}
 }
