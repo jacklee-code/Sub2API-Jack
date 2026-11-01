@@ -2,7 +2,13 @@
 
 package repository
 
-import "github.com/Wei-Shaw/sub2api/internal/service"
+import (
+	"context"
+	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
+)
 
 func (s *AccountRepoSuite) TestJackCreditExhaustionRequiresExplicitRestore() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
@@ -43,18 +49,31 @@ func (s *AccountRepoSuite) TestJackCreditExhaustionRequiresExplicitRestore() {
 	s.Require().Equal("invalid key", got.ErrorMessage)
 }
 
-func (s *AccountRepoSuite) TestJackCreditRestoreOutboxFailureRollsBack() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+func TestJackCreditRestoreOutboxFailureRollsBack(t *testing.T) {
+	// Use autocommit, as in production: a deliberately failed statement aborts
+	// a suite transaction, making readback impossible until rollback. Keeping
+	// this independent also proves the CTE itself is atomic, without a test
+	// savepoint rolling back an otherwise partially successful restore.
+	ctx := context.Background()
+	client := testEntClient(t)
+	account := mustCreateAccount(t, client, &service.Account{
 		Name: "exhausted-credit-rollback", Status: service.StatusError,
 		ErrorMessage: service.JackOpenAICreditExhaustedMessage, Schedulable: false,
 	})
-	s.repo.sql = &failAtomicSchedulerOutboxSQLExecutor{sqlExecutor: s.repo.sql}
-	restored, err := s.repo.RestoreJackOpenAICreditExhausted(s.ctx, account.ID)
-	s.Require().Error(err)
-	s.Require().False(restored)
-	got, err := s.repo.GetByID(s.ctx, account.ID)
-	s.Require().NoError(err)
-	s.Require().Equal(service.StatusError, got.Status)
-	s.Require().False(got.Schedulable)
-	s.Require().True(service.IsJackOpenAICreditExhausted(got))
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID)
+		_ = client.Account.DeleteOneID(account.ID).Exec(context.Background())
+	})
+	repo := newAccountRepositoryWithSQL(client, &failAtomicSchedulerOutboxSQLExecutor{sqlExecutor: integrationDB}, nil)
+	restored, err := repo.RestoreJackOpenAICreditExhausted(ctx, account.ID)
+	require.Error(t, err)
+	require.False(t, restored)
+	got, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.StatusError, got.Status)
+	require.False(t, got.Schedulable)
+	require.True(t, service.IsJackOpenAICreditExhausted(got))
+	var events int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id = $1", account.ID).Scan(&events))
+	require.Zero(t, events)
 }
