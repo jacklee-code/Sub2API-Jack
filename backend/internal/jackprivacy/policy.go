@@ -295,9 +295,14 @@ func (p *Policy) scrub(value any, requested Requested) {
 				}
 				continue
 			}
-			if p.IsGateway() && !p.RequestHistory {
+			if p.IsGateway() {
 				switch name {
-				case "model", "modelversion", "modelname", "modelid", "basemodel", "actualmodel", "resolvedmodel", "effectivemodel":
+				case "model":
+					if p.RequestHistory {
+						continue
+					}
+					fallthrough
+				case "modelversion", "modelname", "modelid", "basemodel", "actualmodel", "resolvedmodel", "effectivemodel":
 					if requested.Model == "" {
 						delete(node, key)
 					} else {

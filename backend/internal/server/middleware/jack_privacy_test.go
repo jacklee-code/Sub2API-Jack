@@ -242,17 +242,19 @@ func TestJackPrivacyCoversNewGatewayAliasesWithoutPathListChanges(t *testing.T) 
 
 func TestJackPrivacyUsageStatsRetainPublicModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, path := range []string{"/v1/usage", "/antigravity/v1/usage"} {
+	for _, path := range []string{"/v1/usage", "/antigravity/v1/usage", "/v1/images/batches/job", "/v1beta/cachedContents/cache"} {
 		r := gin.New()
 		r.Use(JackRoutingPrivacy())
 		r.GET(path, func(c *gin.Context) {
 			c.Set(string(ContextKeyAPIKey), &service.APIKey{})
-			c.JSON(200, gin.H{"model_stats": []any{gin.H{"model": "public-model", "requests": 2}}, "account_id": 73})
+			c.JSON(200, gin.H{"model_stats": []any{gin.H{"model": "public-model", "requests": 2}}, "account_id": 73, "error": gin.H{"message": "private-snapshot for provider-account"}})
 		})
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		require.Equal(t, "public-model", gjson.Get(rec.Body.String(), "model_stats.0.model").String())
 		require.NotContains(t, rec.Body.String(), "account_id")
+		require.NotContains(t, rec.Body.String(), "private-snapshot")
+		require.NotContains(t, rec.Body.String(), "provider-account")
 	}
 }
 
@@ -293,4 +295,18 @@ func TestJackPrivacySSEFlushBeforeFirstEvent(t *testing.T) {
 	require.Empty(t, rec.Result().Header.Get("Content-Encoding"))
 	require.Contains(t, rec.Body.String(), `"model":"public-model"`)
 	require.NotContains(t, rec.Body.String(), "private-snapshot")
+}
+
+func TestJackPrivacyRoleAvailableBeforeArchiveCompression(t *testing.T) {
+	for _, role := range []string{service.RoleUser, service.RoleAdmin} {
+		r := privacyRouter(role, func(c *gin.Context) {
+			c.Header("Content-Type", "application/zip")
+			require.Equal(t, role == service.RoleAdmin, jackprivacy.FromContext(c.Request.Context()).IsAdmin())
+			_, err := c.Writer.Write([]byte{0x50, 0x4b, 0x03, 0x04})
+			require.NoError(t, err)
+		})
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/responses", nil))
+		require.Equal(t, []byte{0x50, 0x4b, 0x03, 0x04}, rec.Body.Bytes())
+	}
 }

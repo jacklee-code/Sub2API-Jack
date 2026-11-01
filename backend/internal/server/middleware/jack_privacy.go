@@ -36,6 +36,13 @@ func JackRoutingPrivacy() gin.HandlerFunc {
 		}
 		p := jackprivacy.New(gateway, strings.HasPrefix(path, "/api/v1/usage/errors"), c.GetHeader("Content-Type"), model, service.CanonicalRequestedReasoningEffort)
 		p.RequestHistory = path == "/v1/usage" || path == "/antigravity/v1/usage"
+		// These public resource DTOs use the model saved from the original create
+		// request, including GET/list/PATCH calls with no model in this request.
+		for _, prefix := range []string{"/v1/images/batches", "/v1beta/cachedContents"} {
+			if path == prefix || strings.HasPrefix(path, prefix+"/") {
+				p.RequestHistory = true
+			}
+		}
 		p.ChatHistory = strings.HasPrefix(path, "/api/v1/chat/")
 		c.Request = c.Request.WithContext(jackprivacy.WithPolicy(c.Request.Context(), p))
 		if c.Request.Body != nil {
@@ -79,10 +86,15 @@ func (w *jackPrivacyWriter) refreshRole() {
 		w.policy.SetGateway()
 	}
 }
-func (w *jackPrivacyWriter) Header() http.Header { return w.ResponseWriter.Header() }
-func (w *jackPrivacyWriter) Status() int         { return w.status }
-func (w *jackPrivacyWriter) Size() int           { return w.size }
-func (w *jackPrivacyWriter) Written() bool       { return w.size >= 0 }
+func (w *jackPrivacyWriter) Header() http.Header {
+	// Archive writers set headers before building their binary body; make the
+	// verified role available to their pre-compression privacy hook as well.
+	w.refreshRole()
+	return w.ResponseWriter.Header()
+}
+func (w *jackPrivacyWriter) Status() int   { return w.status }
+func (w *jackPrivacyWriter) Size() int     { return w.size }
+func (w *jackPrivacyWriter) Written() bool { return w.size >= 0 }
 func (w *jackPrivacyWriter) WriteHeader(code int) {
 	if !w.Written() && code > 0 {
 		w.status = code

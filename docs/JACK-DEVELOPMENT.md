@@ -472,6 +472,10 @@ never grant it. API-key context also classifies new gateway aliases automaticall
   quota/turn-state headers. Ordinary clients do not receive upstream turn-state
   optimizations or account-wide quota windows. Necessary transport headers and
   `x-reasoning-included` are retained.
+- Gemini cached-content and image-batch public resource DTOs retain the requested
+  model saved with the resource, including list/get calls without a new model.
+  Batch ZIP error messages/codes are sanitized before compression; the binary
+  HTTP pass-through cannot sanitize archive entries. Images remain byte-identical.
 - Direct WS writers have focused hooks, including passthrough, context-pool,
   HTTP bridge, Live sideband and Grok realtime. Capture the original next-turn
   frame before rewriting; sanitize only the client-facing copy. Keep these hooks
