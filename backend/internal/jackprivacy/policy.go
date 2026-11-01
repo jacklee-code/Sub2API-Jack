@@ -332,7 +332,7 @@ func modelField(name string) bool {
 }
 func effortField(name string) bool {
 	switch name {
-	case "reasoningeffort", "effort", "actualeffort", "effectiveeffort", "upstreamreasoningeffort":
+	case "reasoningeffort", "effort", "actualeffort", "effectiveeffort", "upstreamreasoningeffort", "thinkinglevel":
 		return true
 	}
 	return false

@@ -12,7 +12,7 @@ const Redacted = "[redacted]"
 
 // Labels identify a sensitive value even when an upstream error has no routing
 // fields. Bare words such as "high load" and arbitrary UUIDs are not secrets.
-var labelledValue = regexp.MustCompile("(?i)\\b((?:chatgpt[-_. ]?)?account(?:[-_. ]?(?:id|uuid))?|(?:upstream[-_. ]|actual[-_. ]|effective[-_. ])?model(?:[-_. ]?(?:id|name|version))?|(?:reasoning[-_. ]|upstream[-_. ]|actual[-_. ]|effective[-_. ])?effort)([\"'`]?\\s*[:=]\\s*[\"'`]?|\\s+[\"'`])([a-z0-9][a-z0-9_.:/@+\\-]*)")
+var labelledValue = regexp.MustCompile("(?i)\\b((?:chatgpt[-_. ]?)?account(?:[-_. ]?(?:id|uuid))?|(?:upstream[-_. ]|actual[-_. ]|effective[-_. ])?model(?:[-_. ]?(?:id|name|version))?|(?:reasoning[-_. ]|upstream[-_. ]|actual[-_. ]|effective[-_. ])?effort|thinking[-_. ]?level)([\"'`]?\\s*[:=]\\s*[\"'`]?|\\s+[\"'`])([a-z0-9][a-z0-9_.:/@+\\-]*)")
 var labelledEffort = regexp.MustCompile("(?i)(\\b(?:reasoning[-_. ]+)?effort\\s+(?:is\\s+)?)(none|minimal|low|medium|high|xhigh|max|auto)\\b")
 var accountUUID = regexp.MustCompile("(?i)(\\baccount\\s+)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\\b")
 

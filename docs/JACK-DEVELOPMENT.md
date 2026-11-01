@@ -479,8 +479,9 @@ frames, public usage fallbacks and group policies retain the earlier behavior.
   apply that policy only to OpenAI/unknown-origin rows. Known other providers use
   their original requested-then-effective fallback. Actual account platform wins
   over group platform; orphaned records without provider evidence stay protected.
-- Preserve budget_tokens/thinking_budget/thinking_level, organization IDs,
+- Preserve budget_tokens/thinking_budget, organization IDs,
   fingerprints, upstream request IDs and mismatch flags in protocol metadata.
+  Named strength fields, including thinking_level, still use requested effort.
   SSE id/retry/comments/custom event names and line endings are retained; only
   sensitive values are redacted. WebSocket close reasons keep their useful text.
 - Error envelopes retain status, type, arbitrary codes, params and details. The
