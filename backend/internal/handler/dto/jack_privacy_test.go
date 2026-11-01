@@ -30,7 +30,7 @@ func TestJackUserMetadataAndAdminPreservation(t *testing.T) {
 	require.Equal(t, "public-model", legacyAdmin.Model)
 	require.Equal(t, "xhigh", *legacyAdmin.ReasoningEffort)
 	require.Equal(t, "private-model", *legacyAdmin.UpstreamModel)
-	group := &service.Group{MaxReasoningEffort: "low", ReasoningEffortMappings: []domain.ReasoningEffortMapping{{From: "xhigh", To: "low"}}}
+	group := &service.Group{Platform: service.PlatformOpenAI, MaxReasoningEffort: "low", ReasoningEffortMappings: []domain.ReasoningEffortMapping{{From: "xhigh", To: "low"}}}
 	user, err = json.Marshal(GroupFromService(group))
 	require.NoError(t, err)
 	require.NotContains(t, string(user), "reasoning_effort")
@@ -47,4 +47,20 @@ func TestJackAdminMissingRequestedSettingsStayInMappingFields(t *testing.T) {
 	require.Nil(t, admin.ReasoningEffort)
 	require.Equal(t, "private-model", *admin.UpstreamModel)
 	require.Equal(t, actual, *admin.UpstreamReasoningEffort)
+}
+
+func TestJackPrivacyOtherProviderUsageAndGroupUnchanged(t *testing.T) {
+	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformGrok, service.PlatformAntigravity} {
+		effort := "high"
+		log := &service.UsageLog{AccountID: 73, Model: "original-model", ReasoningEffort: &effort, LegacyRequestMetadata: true, Account: &service.Account{Platform: platform}, Group: &service.Group{Platform: service.PlatformOpenAI}}
+		row := UsageLogFromService(log)
+		require.Equal(t, int64(73), *row.AccountID)
+		require.Equal(t, "original-model", row.Model)
+		require.Equal(t, effort, *row.ReasoningEffort)
+		group := &service.Group{Platform: platform, MaxReasoningEffort: "low", ReasoningEffortMappings: []domain.ReasoningEffortMapping{{From: "high", To: "low"}}}
+		body, err := json.Marshal(GroupFromService(group))
+		require.NoError(t, err)
+		require.Contains(t, string(body), `"max_reasoning_effort":"low"`)
+		require.Contains(t, string(body), `"from":"high","to":"low"`)
+	}
 }

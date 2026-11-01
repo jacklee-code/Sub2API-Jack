@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -35,6 +36,7 @@ func JackRoutingPrivacy() gin.HandlerFunc {
 			model, _ = url.PathUnescape(model)
 		}
 		p := jackprivacy.New(gateway, strings.HasPrefix(path, "/api/v1/usage/errors"), c.GetHeader("Content-Type"), model, service.CanonicalRequestedReasoningEffort)
+		p.SetProvider("")
 		p.RequestHistory = path == "/v1/usage" || path == "/antigravity/v1/usage"
 		// These public resource DTOs use the model saved from the original create
 		// request, including GET/list/PATCH calls with no model in this request.
@@ -45,15 +47,25 @@ func JackRoutingPrivacy() gin.HandlerFunc {
 		}
 		p.ChatHistory = strings.HasPrefix(path, "/api/v1/chat/")
 		c.Request = c.Request.WithContext(jackprivacy.WithPolicy(c.Request.Context(), p))
-		if c.Request.Body != nil {
-			c.Request.Body = &privacyReadCloser{Reader: io.TeeReader(c.Request.Body, p), Closer: c.Request.Body}
-		}
 		original := c.Writer
 		w := &jackPrivacyWriter{ResponseWriter: original, c: c, policy: p, status: http.StatusOK, size: -1}
+		if c.Request.Body != nil {
+			c.Request.Body = &privacyReadCloser{Reader: io.TeeReader(c.Request.Body, privacyCaptureWriter{w}), Closer: c.Request.Body}
+		}
 		c.Writer = w
 		defer func() { w.finish(); c.Writer = original }()
 		c.Next()
 	}
+}
+
+type privacyCaptureWriter struct{ owner *jackPrivacyWriter }
+
+func (w privacyCaptureWriter) Write(body []byte) (int, error) {
+	w.owner.refreshRole()
+	if w.owner.policy.CanCapture() {
+		return w.owner.policy.Write(body)
+	}
+	return len(body), nil
 }
 
 func jackPrivacyGatewayPath(path string) bool {
@@ -82,9 +94,20 @@ func (w *jackPrivacyWriter) refreshRole() {
 	w.policy.SetAdmin(ok && role == service.RoleAdmin)
 	// All authenticated gateway routes are protected, including aliases added by
 	// future upstream syncs. The path list only classifies pre-auth failures.
+	platform, _ := w.c.Request.Context().Value(ctxkey.Platform).(string)
+	if platform == "" {
+		platform, _ = GetForcePlatformFromContext(w.c)
+	}
+	if platform == "" {
+		platform, _ = service.ResolvedTargetPlatformFromContext(w.c.Request.Context())
+	}
 	if key, ok := GetAPIKeyFromContext(w.c); ok && key != nil {
 		w.policy.SetGateway()
+		if platform == "" && key.Group != nil {
+			platform = key.Group.Platform
+		}
 	}
+	w.policy.SetProvider(platform)
 }
 func (w *jackPrivacyWriter) Header() http.Header {
 	// Archive writers set headers before building their binary body; make the
@@ -103,7 +126,7 @@ func (w *jackPrivacyWriter) WriteHeader(code int) {
 func (w *jackPrivacyWriter) WriteHeaderNow() {
 	w.refreshRole()
 	w.policy.Headers(w.Header())
-	if w.policy.IsAdmin() || w.status == http.StatusSwitchingProtocols || w.status == http.StatusNoContent || w.status == http.StatusNotModified {
+	if !w.policy.Enabled() || w.policy.IsAdmin() || w.status == http.StatusSwitchingProtocols || w.status == http.StatusNoContent || w.status == http.StatusNotModified {
 		w.ResponseWriter.WriteHeader(w.status)
 		w.ResponseWriter.WriteHeaderNow()
 	}
@@ -126,6 +149,10 @@ func (w *jackPrivacyWriter) Write(data []byte) (int, error) {
 	}
 	w.size += len(data)
 	if w.policy.IsAdmin() {
+		w.ResponseWriter.WriteHeader(w.status)
+		return w.ResponseWriter.Write(data)
+	}
+	if !w.policy.Enabled() {
 		w.ResponseWriter.WriteHeader(w.status)
 		return w.ResponseWriter.Write(data)
 	}
@@ -217,9 +244,9 @@ func (w *jackPrivacyWriter) Flush() {
 	if w.mode == "" && strings.Contains(strings.ToLower(w.Header().Get("Content-Type")), "text/event-stream") {
 		w.mode = "sse"
 	}
-	if w.policy.IsAdmin() || w.mode == "binary" || w.mode == "sse" {
+	if !w.policy.Enabled() || w.policy.IsAdmin() || w.mode == "binary" || w.mode == "sse" {
 		w.policy.Headers(w.Header())
-		if !w.policy.IsAdmin() && w.mode == "sse" {
+		if w.policy.Enabled() && !w.policy.IsAdmin() && w.mode == "sse" {
 			w.Header().Del("Content-Encoding")
 			w.Header().Del("Content-Length")
 		}
@@ -240,7 +267,7 @@ func (w *jackPrivacyWriter) finish() {
 		return
 	}
 	w.refreshRole()
-	if w.policy.IsAdmin() {
+	if !w.policy.Enabled() || w.policy.IsAdmin() {
 		w.ResponseWriter.WriteHeader(w.status)
 		return
 	}

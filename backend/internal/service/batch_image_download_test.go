@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/stretchr/testify/require"
 )
 
@@ -148,33 +147,6 @@ func TestBatchImageDownloadService_StreamZip(t *testing.T) {
 		require.ErrorIs(t, err, ErrBatchImageZipTooManyItems)
 		require.Empty(t, buf.Bytes())
 	})
-}
-
-func TestJackPrivacyBatchZipErrors(t *testing.T) {
-	for _, admin := range []bool{false, true} {
-		svc, repo, _ := newTestBatchImageDownloadService()
-		secret := "private-model effort low for provider-account"
-		for i := range repo.items["imgbatch_download"] {
-			if repo.items["imgbatch_download"][i].Status == BatchImageItemStatusFailed {
-				repo.items["imgbatch_download"][i].ErrorMessage = &secret
-				repo.items["imgbatch_download"][i].ErrorCode = &secret
-			}
-		}
-		p := jackprivacy.New(true, false, "", "", nil)
-		p.SetAdmin(admin)
-		ctx := jackprivacy.WithPolicy(context.Background(), p)
-		var buf bytes.Buffer
-		_, err := svc.StreamZip(ctx, testBatchImageOwner(), "imgbatch_download", BatchImageZipOptions{}, &buf)
-		require.NoError(t, err)
-		files := readZipFiles(t, buf.Bytes())
-		if admin {
-			require.Contains(t, string(files["errors.json"]), secret)
-		} else {
-			require.NotContains(t, string(files["errors.json"]), secret)
-			require.Contains(t, string(files["errors.json"]), "Request failed")
-		}
-		require.Equal(t, []byte("first"), files["images/cover___001.png"])
-	}
 }
 
 func TestExtractBatchImagePartsFromResultLine(t *testing.T) {

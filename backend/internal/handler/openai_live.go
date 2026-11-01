@@ -118,6 +118,9 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.writeLiveCreateError(c, err)
 		return
 	}
+	if created.Account != nil {
+		setOpsSelectedAccount(c, created.Account.ID, created.Account.Platform)
+	}
 	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))
 	c.Data(http.StatusOK, "application/sdp", created.SDP)
 }

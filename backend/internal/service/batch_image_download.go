@@ -18,7 +18,6 @@ import (
 	"unicode"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -240,14 +239,6 @@ func (s *BatchImageDownloadService) StreamZip(ctx context.Context, owner BatchIm
 		return result, ErrBatchImageDownloadFailed.WithCause(err)
 	}
 	zipErrors = append(zipErrors, batchImageZipErrorsFromItems(failedItems)...)
-	// Binary ZIP content bypasses the HTTP JSON sanitizer. Scrub the public
-	// errors copy before compression; keep the source records for admin audit.
-	if policy := jackprivacy.FromContext(ctx); policy != nil && !policy.IsAdmin() {
-		for i := range zipErrors {
-			zipErrors[i].Code = "upstream_error"
-			zipErrors[i].Message = "Request failed"
-		}
-	}
 	if err := writeBatchImageZipJSON(zipWriter, "manifest.json", batchImageZipManifest{
 		BatchID:      job.BatchID,
 		Model:        job.Model,

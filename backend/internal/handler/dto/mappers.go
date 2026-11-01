@@ -234,12 +234,19 @@ func groupFromServiceBase(g *service.Group) Group {
 		RequireOAuthOnly:                g.RequireOAuthOnly,
 		RequirePrivacySet:               g.RequirePrivacySet,
 		RPMLimit:                        g.RPMLimit,
-		MaxReasoningEffort:              g.MaxReasoningEffort,
-		MaxReasoningEffortOverLimit:     g.MaxReasoningEffortOverLimit,
-		ReasoningEffortMappings:         g.ReasoningEffortMappings,
+		MaxReasoningEffort:              publicGroupPrivacyField(g, &g.MaxReasoningEffort),
+		MaxReasoningEffortOverLimit:     publicGroupPrivacyField(g, &g.MaxReasoningEffortOverLimit),
+		ReasoningEffortMappings:         publicGroupPrivacyField(g, &g.ReasoningEffortMappings),
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}
+}
+
+func publicGroupPrivacyField[T any](g *service.Group, value *T) *T {
+	if g.Platform == service.PlatformOpenAI {
+		return nil
+	}
+	return value
 }
 
 func AccountFromServiceShallow(a *service.Account) *Account {
@@ -697,13 +704,22 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 	requestType := l.EffectiveRequestType()
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
 	requestedModel := l.RequestedModel
-	if l.LegacyRequestMetadata {
+	protected := service.ProtectOpenAIRouting(l.RoutingPrivacyPlatform())
+	var publicAccountID *int64
+	if !protected {
+		id := l.AccountID
+		publicAccountID = &id
+		if requestedModel == "" {
+			requestedModel = l.Model
+		}
+	} else if l.LegacyRequestMetadata {
 		requestedModel = ""
 	}
 	return UsageLog{
 		ID:                        l.ID,
 		UserID:                    l.UserID,
 		APIKeyID:                  l.APIKeyID,
+		AccountID:                 publicAccountID,
 		RequestID:                 l.RequestID,
 		Model:                     requestedModel,
 		ServiceTier:               l.ServiceTier,
@@ -792,6 +808,7 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	}
 	return &AdminUsageLog{
 		UsageLog:                usageLog,
+		Platform:                l.RoutingPrivacyPlatform(),
 		AccountID:               l.AccountID,
 		UpstreamModel:           upstreamModel,
 		UpstreamReasoningEffort: adminUpstreamReasoningEffort(l),
@@ -809,11 +826,18 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 }
 
 func userFacingReasoningEffort(l *service.UsageLog) *string {
-	if l == nil || l.LegacyRequestMetadata {
+	if l == nil {
+		return nil
+	}
+	protected := service.ProtectOpenAIRouting(l.RoutingPrivacyPlatform())
+	if protected && l.LegacyRequestMetadata {
 		return nil
 	}
 	if requested := strings.TrimSpace(derefString(l.RequestedReasoningEffort)); requested != "" {
 		return &requested
+	}
+	if !protected {
+		return l.ReasoningEffort
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -476,6 +477,7 @@ func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) 
 			p := strings.TrimSpace(platform[0])
 			if p != "" {
 				ctx = context.WithValue(ctx, ctxkey.Platform, p)
+				jackprivacy.SetProvider(ctx, p)
 			}
 		}
 		c.Request = c.Request.WithContext(ctx)

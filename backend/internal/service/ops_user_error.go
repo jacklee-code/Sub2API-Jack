@@ -1,6 +1,10 @@
 package service
 
-import "time"
+import (
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
+)
 
 // UserErrorRequest 是面向终端用户的"错误请求"精简脱敏视图（白名单）。
 // 严禁包含 account / api_key_prefix / upstream_endpoint / user_email 等
@@ -95,6 +99,12 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 		return nil
 	}
 	model := e.RequestedModel
+	message := e.Message
+	if ProtectOpenAIRouting(e.Platform) {
+		message = "Request failed"
+	} else if model == "" {
+		model = e.Model
+	}
 	clientIP := ""
 	if e.ClientIP != nil {
 		clientIP = *e.ClientIP
@@ -107,7 +117,7 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 		StatusCode:      e.StatusCode,
 		Category:        MapUserErrorCategory(e.Phase, e.Type),
 		Platform:        e.Platform,
-		Message:         e.Message,
+		Message:         message,
 		KeyName:         e.APIKeyName,
 		KeyDeleted:      e.APIKeyDeleted,
 		ClientIP:        clientIP,
@@ -133,9 +143,13 @@ func ToUserErrorRequestDetail(e *OpsErrorLogDetail) *UserErrorRequestDetail {
 		return nil
 	}
 	base := ToUserErrorRequest(&e.OpsErrorLog)
+	body := e.ErrorBody
+	if ProtectOpenAIRouting(e.Platform) {
+		body = jackprivacy.GenericError
+	}
 	return &UserErrorRequestDetail{
 		UserErrorRequest:   *base,
-		ErrorBody:          e.ErrorBody,
+		ErrorBody:          body,
 		UpstreamStatusCode: e.UpstreamStatusCode,
 	}
 }

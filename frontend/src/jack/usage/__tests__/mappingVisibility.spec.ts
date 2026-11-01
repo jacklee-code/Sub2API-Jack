@@ -28,6 +28,15 @@ const mountHarness = () => mount(Harness, {
 describe('admin usage mapping visibility', () => {
   beforeEach(() => localStorage.clear())
 
+  it('retains other providers mappings when OpenAI mappings are hidden', () => {
+    const rows = ref([{ ...record, platform: 'anthropic' }])
+    const { displayRecords, showMappings } = useMappingVisibility(rows)
+    expect(showMappings.value).toBe(false)
+    expect(displayRecords.value[0]).toBe(rows.value[0])
+    expect(displayRecords.value[0].upstream_model).toBe('private-model')
+    expect(displayRecords.value[0].upstream_reasoning_effort).toBe('low')
+  })
+
   it('defaults to requested values, restores every mapping on selection, and retains the original admin record', async () => {
     const wrapper = mountHarness()
     const toggle = wrapper.get('[data-testid="usage-show-mappings"]')

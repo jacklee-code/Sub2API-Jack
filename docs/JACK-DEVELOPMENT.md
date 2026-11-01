@@ -452,63 +452,65 @@ work and new keys appear in 繁中 automatically.
 
 ## Client routing metadata privacy
 
-`internal/jackprivacy` owns the ordinary-client output policy. The small router
-hook installs `JackRoutingPrivacy` outside the gateway ops capture layer, so
-observations, billing and administrator records retain raw upstream information.
-Verified JWT/API-key roles determine administrator access; UI/request headers
-never grant it. API-key context also classifies new gateway aliases automatically.
+`internal/jackprivacy` owns the OpenAI client-output policy. The router hook runs
+outside ops capture: billing, observations, and administrator records retain the
+upstream data. Scope follows the verified API-key group, composite route decision,
+and ultimately the selected account platform. An OpenAI-compatible URL does not
+by itself activate protection. Anthropic, Gemini, Antigravity, Grok, Kiro and other
+providers bypass response parsing and rewriting; their headers, JSON, SSE, socket
+frames, public usage fallbacks and group policies retain the earlier behavior.
 
-- Original model/effort are captured from the ingress before composite routes,
-  group policy or account mapping. Ordinary JSON, SSE and WebSocket metadata uses
-  those values; unknown settings are omitted. User text, tool arguments, schemas
-  and media are not rewritten. This protects protocol metadata, not claims that a
-  model generates in its text. SSE events are assembled across arbitrary write
-  boundaries; JSON and individual events have a 64 MiB fail-closed buffer limit.
-  The shared body reader captures metadata from the first decoded ingress body,
-  so compressed requests and fields after large inputs work without keeping a
-  second body copy. Subsequent mapped preread bodies cannot replace the capture.
-  Other streaming readers use a bounded 1 MiB original-prefix fallback; missing
-  fields remain unknown rather than falling back to effective settings.
-- Ordinary usage DTOs omit `account_id`; group DTOs omit effort mappings/ceilings.
-  User error history and gateway error envelopes use generic messages and retain
-  only known machine error types/codes. Provider-specific error details remain in
-  administrator logs. Sensitive/unknown gateway response headers are removed at
-  the final boundary, including custom allowlist additions and explicit Codex
-  quota/turn-state headers. Ordinary clients do not receive upstream turn-state
-  optimizations or account-wide quota windows. Necessary transport headers and
-  `x-reasoning-included` are retained.
-  User error-model filters/sorts use requested values only, so filtering/counting
-  cannot recover a hidden effective model through the old fallback expression.
-- Gemini cached-content and image-batch public resource DTOs retain the requested
-  model saved with the resource, including list/get calls without a new model.
-  Batch ZIP error messages/codes are sanitized before compression; the binary
-  HTTP pass-through cannot sanitize archive entries. Images remain byte-identical.
-- Direct WS writers have focused hooks, including passthrough, context-pool,
-  HTTP bridge, Live sideband and Grok realtime. Capture the original next-turn
-  frame before rewriting; sanitize only the client-facing copy. Keep these hooks
-  when upstream changes a socket write path.
-- Jack migration `005_usage_request_privacy.sql` adds the provenance column
-  `usage_logs.jack_request_metadata_verified`. Existing rows and older writers
-  default to false; the new insert paths explicitly write true. Unverified
-  historical model/effort remain available to administrators but display as
-  unknown to ordinary users. Requested-model aggregates also avoid effective
-  fallbacks for user-facing queries; administrator aggregates retain the original
-  model dimensions. No usage, charge, subscription or account record is deleted.
-- Migration `006_rebuild_private_monitor_models.sql` invalidates only derived
-  channel-monitor facts/rollups and resets their backfill watermark. Earlier
-  versions could persist effective-model fallbacks there. The existing bounded
-  background worker rebuilds the cache; monitor charts temporarily show pending
-  coverage. Source usage/error logs and monitor configuration are retained.
-- The migration is additive and older binaries ignore the new column. Rolling
-  back to an older binary also rolls back the output protection; its new rows
-  remain unverified on re-upgrade because the column default stays false. Do not
-  mark historical rows verified without independent original-request evidence.
+- For OpenAI, capture requested model/effort before any mapping. The shared body
+  reader captures the first decoded body without retaining a second full copy;
+  later mapped preread bodies cannot replace it. Other streaming readers use a
+  bounded 1 MiB prefix fallback. Unknown values remain unknown. Each HTTP JSON
+  response or SSE event has a 64 MiB fail-closed buffer limit.
+- Original text, tool arguments, schemas and binary media stay intact. SSE events
+  are processed independently, including LF, CRLF and CR boundaries; the first
+  event is flushed before the complete answer is available. Socket hooks are
+  limited to selected OpenAI accounts, including Responses and Live sideband.
+- Only identity/model/effort/fingerprint and explicit private-route headers are
+  removed at the final boundary. The gateway's existing header filter continues
+  to control all other headers. Codex quota windows and `x-codex-turn-state` are
+  retained, including compact and WebSocket handshakes. Keep the existing
+  same-account/cross-account turn-state echo guard; never globally strip state.
+- Public OpenAI usage omits account ID and effective model/effort fallbacks;
+  OpenAI error records show generic provider messages. User filters and sorts
+  apply that policy only to OpenAI/unknown-origin rows. Known other providers use
+  their original requested-then-effective fallback. Actual account platform wins
+  over group platform; orphaned records without provider evidence stay protected.
+- OpenAI-only group DTOs omit effort mappings/ceilings. Shared Composite group
+  settings and other providers' settings remain available, so this does not hide
+  policies shared across providers. Protection of actual per-request metadata
+  follows the resolved provider even for a Composite group.
+- Migration `005` adds `jack_request_metadata_verified`, default false for old
+  rows/writers, explicitly true for new writers. Administrators retain legacy
+  data; OpenAI public history cannot treat backfilled upstream values as input.
+  The additive column is compatible with older writers, but rolling back the
+  binary rolls back output protection too. Do not mark old rows verified without
+  independent request evidence.
+- Migration `006` is retained as immutable history. Migration `007` schedules a
+  bounded monitor backfill with the corrected provider-specific model dimension;
+  it preserves current facts, configuration and source logs. No usage, charge,
+  subscription or account record is deleted. An upgrade through `006` still
+  performs that migration's one-time derived-cache reset before the rebuild.
 
-The administrator usage page defaults to hiding the mapping annotations. Its
-column menu's **Show mappings / 顯示映射** preference lives in
-`frontend/src/jack/usage/`; it projects a display copy of the records and keeps
-the shared upstream `UsageTable` unchanged. The raw admin API data and exports
-retain all mappings. The preference is independent of upstream column settings.
+The administrator usage page defaults to hiding OpenAI mapping annotations. The
+**Show mappings / 顯示映射** preference lives in `frontend/src/jack/usage/`, projects
+a display copy, and leaves the shared `UsageTable` unchanged. Other providers keep
+their original mapping display. Admin API data and exports retain all mappings.
+
+The key normalizer uses one allocation only when a name needs normalization;
+it does not rebuild `strings.Replacer` per field. Reproducible local benchmarks:
+
+```sh
+cd backend
+go test -tags=unit ./internal/server/middleware -run '^$' -bench '^BenchmarkRoutingPrivacy(JSON|SSE|WSFrame|Ingress)$' -benchmem
+go test -tags=unit ./internal/server/middleware -run '^$' -bench '^BenchmarkRoutingPrivacyConcurrent$' -cpu=4 -benchmem
+```
+
+The concurrent benchmark uses 32 local callers on four Go scheduler workers.
+These measure proxy processing and allocations, not model latency or VPS limits.
 
 ## Deployment and recovery
 
