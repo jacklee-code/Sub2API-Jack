@@ -1805,7 +1805,7 @@ export interface UsageLog {
   id: number
   user_id: number
   api_key_id: number
-  account_id: number | null
+  account_id?: number | null
   request_id: string
   model: string
   service_tier?: string | null

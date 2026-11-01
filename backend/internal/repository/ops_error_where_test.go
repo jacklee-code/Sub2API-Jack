@@ -70,6 +70,24 @@ func TestBuildOpsErrorLogsWhere_ModelFuzzy(t *testing.T) {
 	}
 }
 
+func TestJackPrivacyUserErrorModelFilterAndSort(t *testing.T) {
+	filter := &service.OpsErrorLogFilter{Model: "private-model", ModelFuzzy: true, RequestedModelOnly: true, SortBy: "model"}
+	where, _ := buildOpsErrorLogsWhere(filter)
+	for _, expression := range []string{where, opsErrorLogsOrderBy(filter)} {
+		if strings.Contains(expression, "e.model") {
+			t.Fatalf("ordinary user can probe effective model: %s", expression)
+		}
+		if !strings.Contains(expression, "e.requested_model") {
+			t.Fatalf("missing requested-model dimension: %s", expression)
+		}
+	}
+	filter.RequestedModelOnly = false
+	where, _ = buildOpsErrorLogsWhere(filter)
+	if !strings.Contains(where, "e.model") || !strings.Contains(opsErrorLogsOrderBy(filter), "e.model") {
+		t.Fatal("administrator legacy fallback must remain available")
+	}
+}
+
 // TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption verifies that streaming
 // cyber_policy hits (status_code=200) remain visible in admin + user error-request
 // lists.  The repository filter must emit an OR exemption for error_type='cyber_policy'

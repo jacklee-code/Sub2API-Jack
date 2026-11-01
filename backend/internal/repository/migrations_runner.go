@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/jackmigrations"
 	"github.com/Wei-Shaw/sub2api/migrations"
 )
 
@@ -115,7 +116,10 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("nil sql db")
 	}
-	return applyMigrationsFS(ctx, db, migrations.FS)
+	if err := applyMigrationsFS(ctx, db, migrations.FS); err != nil {
+		return err
+	}
+	return jackmigrations.Apply(ctx, db)
 }
 
 // applyMigrationsFS 是迁移执行的核心实现。

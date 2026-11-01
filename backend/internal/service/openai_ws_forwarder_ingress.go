@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
@@ -229,6 +230,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	parseClientPayload := func(turn int, raw []byte) (openAIWSClientPayload, error) {
+		// The first frame was captured before handler-level composite mapping.
+		if turn > 1 {
+			jackprivacy.CaptureClientFrame(ctx, raw)
+		}
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) == 0 {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "empty websocket request payload", nil)
@@ -456,7 +461,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			eventBytes := buildOpenAIFastPolicyBlockedWSEvent(blocked)
 			if eventBytes != nil {
 				writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
-				_ = clientConn.Write(writeCtx, coderws.MessageText, eventBytes)
+				_ = clientConn.Write(writeCtx, coderws.MessageText, jackprivacy.ClientFrame(ctx, eventBytes))
 				cancel()
 			}
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
@@ -487,7 +492,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
 		defer cancel()
 		message = restoreCodexToolNamesFromContext(c, message)
-		return clientConn.Write(writeCtx, coderws.MessageText, message)
+		return clientConn.Write(writeCtx, coderws.MessageText, jackprivacy.ClientFrame(ctx, message))
 	}
 
 	readClientMessage := func() ([]byte, error) {

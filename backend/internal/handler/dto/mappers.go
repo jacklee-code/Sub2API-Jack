@@ -154,6 +154,9 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 	}
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
+		MaxReasoningEffort:          g.MaxReasoningEffort,
+		MaxReasoningEffortOverLimit: g.MaxReasoningEffortOverLimit,
+		ReasoningEffortMappings:     g.ReasoningEffortMappings,
 		ForceOpenAIFast:             g.ForceOpenAIFast,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
 		ProfitControlEnabled:        g.ProfitControlEnabled,
@@ -694,14 +697,13 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 	requestType := l.EffectiveRequestType()
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
 	requestedModel := l.RequestedModel
-	if requestedModel == "" {
-		requestedModel = l.Model
+	if l.LegacyRequestMetadata {
+		requestedModel = ""
 	}
 	return UsageLog{
 		ID:                        l.ID,
 		UserID:                    l.UserID,
 		APIKeyID:                  l.APIKeyID,
-		AccountID:                 l.AccountID,
 		RequestID:                 l.RequestID,
 		Model:                     requestedModel,
 		ServiceTier:               l.ServiceTier,
@@ -773,9 +775,25 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	}
 	usageLog := usageLogFromServiceUser(l)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
+	if l.LegacyRequestMetadata {
+		usageLog.Model = l.RequestedModel
+		usageLog.ReasoningEffort = l.RequestedReasoningEffort
+		if usageLog.Model == "" {
+			usageLog.Model = l.Model
+		}
+		if usageLog.ReasoningEffort == nil {
+			usageLog.ReasoningEffort = l.ReasoningEffort
+		}
+	}
+	upstreamModel := l.UpstreamModel
+	if upstreamModel == nil && usageLog.Model == "" && l.Model != "" {
+		model := l.Model
+		upstreamModel = &model
+	}
 	return &AdminUsageLog{
 		UsageLog:                usageLog,
-		UpstreamModel:           l.UpstreamModel,
+		AccountID:               l.AccountID,
+		UpstreamModel:           upstreamModel,
 		UpstreamReasoningEffort: adminUpstreamReasoningEffort(l),
 		UpstreamResponseModel:   l.UpstreamResponseModel,
 		UpstreamModelMismatch:   l.UpstreamModelMismatch,
@@ -791,13 +809,13 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 }
 
 func userFacingReasoningEffort(l *service.UsageLog) *string {
-	if l == nil {
+	if l == nil || l.LegacyRequestMetadata {
 		return nil
 	}
 	if requested := strings.TrimSpace(derefString(l.RequestedReasoningEffort)); requested != "" {
 		return &requested
 	}
-	return l.ReasoningEffort
+	return nil
 }
 
 func adminUpstreamReasoningEffort(l *service.UsageLog) *string {

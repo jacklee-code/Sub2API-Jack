@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,7 @@ func TestResolveModelDimensionExpression(t *testing.T) {
 		want      string
 	}{
 		{usagestats.ModelSourceRequested, "COALESCE(NULLIF(TRIM(requested_model), ''), model)"},
+		{usagestats.ModelSourcePublicRequested, "CASE WHEN jack_request_metadata_verified THEN COALESCE(NULLIF(TRIM(requested_model), ''), 'unknown') ELSE 'unknown' END"},
 		{usagestats.ModelSourceUpstream, "COALESCE(NULLIF(TRIM(upstream_model), ''), model)"},
 		{usagestats.ModelSourceMapping, "(COALESCE(NULLIF(TRIM(requested_model), ''), model) || ' -> ' || COALESCE(NULLIF(TRIM(upstream_model), ''), model))"},
 		{"", "COALESCE(NULLIF(TRIM(requested_model), ''), model)"},
@@ -52,6 +54,19 @@ func TestResolveModelDimensionExpression(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestJackPrivacyUserUsageModelSort(t *testing.T) {
+	db, mock := newSQLMock(t)
+	r := &usageLogRepository{sql: db}
+	params := pagination.PaginationParams{Page: 1, PageSize: 20, SortBy: "model", SortOrder: "asc"}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM usage_logs WHERE user_id = $1")).WithArgs(int64(9)).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	expectedOrder := "ORDER BY CASE WHEN jack_request_metadata_verified THEN COALESCE(NULLIF(TRIM(requested_model), ''), 'unknown') ELSE 'unknown' END ASC, id ASC"
+	mock.ExpectQuery(regexp.QuoteMeta(expectedOrder)).WithArgs(int64(9), 20, 0).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	_, _, err := r.ListWithFilters(context.Background(), params, UsageLogFilters{UserID: 9, ModelFilterSource: usagestats.ModelSourcePublicRequested})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Contains(t, usageLogOrderBy(params), ", model)") // Admin keeps its original fallback.
 }
 
 func TestGetUserBreakdownStatsRequestTypeIncludesLegacyFallback(t *testing.T) {

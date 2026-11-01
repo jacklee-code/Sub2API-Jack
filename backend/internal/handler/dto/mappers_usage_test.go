@@ -255,18 +255,19 @@ func TestUsageLogFromService_OmitsUpstreamReasoningEffortWhenUnmapped(t *testing
 	require.NotContains(t, string(adminJSON), "upstream_reasoning_effort")
 }
 
-func TestUsageLogFromService_FallsBackToLegacyModelWhenRequestedModelMissing(t *testing.T) {
+func TestUsageLogFromService_KeepsLegacyModelAdminOnlyWhenRequestUnknown(t *testing.T) {
 	t.Parallel()
 
 	log := &service.UsageLog{
-		RequestID: "req_legacy",
-		Model:     "claude-3",
+		LegacyRequestMetadata: true,
+		RequestID:             "req_legacy",
+		Model:                 "claude-3",
 	}
 
 	userDTO := UsageLogFromService(log)
 	adminDTO := UsageLogFromServiceAdmin(log)
 
-	require.Equal(t, "claude-3", userDTO.Model)
+	require.Empty(t, userDTO.Model)
 	require.Equal(t, "claude-3", adminDTO.Model)
 }
 

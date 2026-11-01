@@ -381,6 +381,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		// Keep the image cache split in the existing usage_logs JSONB payload.
 		imageSizeBreakdown["image_cache_read_tokens"] = result.Usage.ImageCacheReadTokens
 	}
+	requestedModel, requestedEffort := jackRequestedUsageFields(ctx, requestedModel, result.RequestedReasoningEffort)
 	usageLog := &UsageLog{
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,
@@ -394,7 +395,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		UpstreamModelMismatch:    upstreamModelMismatch(sentModel, result.UpstreamResponseModel),
 		ServiceTier:              result.ServiceTier,
 		ReasoningEffort:          result.ReasoningEffort,
-		RequestedReasoningEffort: coalesceRequestedReasoningEffort(result.RequestedReasoningEffort, result.ReasoningEffort),
+		RequestedReasoningEffort: requestedEffort,
 		InboundEndpoint:          optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:         optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:              actualInputTokens,

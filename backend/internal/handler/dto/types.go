@@ -157,11 +157,11 @@ type Group struct {
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制），设置后覆盖用户级 rpm_limit。
 	RPMLimit int `json:"rpm_limit"`
 	// MaxReasoningEffort Anthropic/OpenAI 请求的推理强度上限，空字符串表示不限制。
-	MaxReasoningEffort string `json:"max_reasoning_effort"`
+	MaxReasoningEffort string `json:"-"`
 	// MaxReasoningEffortOverLimit 超过上限时的访问控制：downgrade（默认）或 deny。
-	MaxReasoningEffortOverLimit string `json:"max_reasoning_effort_over_limit"`
+	MaxReasoningEffortOverLimit string `json:"-"`
 	// ReasoningEffortMappings Anthropic/OpenAI 推理强度映射，可按模型精确名、前缀或后缀限定。
-	ReasoningEffortMappings []domain.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
+	ReasoningEffortMappings []domain.ReasoningEffortMapping `json:"-"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -171,6 +171,9 @@ type Group struct {
 // 注意：普通用户接口不得返回 model_routing/account_count/account_groups 等内部信息。
 type AdminGroup struct {
 	Group
+	MaxReasoningEffort          string                          `json:"max_reasoning_effort"`
+	MaxReasoningEffortOverLimit string                          `json:"max_reasoning_effort_over_limit"`
+	ReasoningEffortMappings     []domain.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 	// ForceOpenAIFast 是管理端请求策略，用户侧分组 DTO 无需暴露。
 	ForceOpenAIFast bool `json:"force_openai_fast"`
 	// FreeOpenAIFast 是管理端计费策略，用户侧分组 DTO 无需暴露。
@@ -598,14 +601,13 @@ type UsageLog struct {
 	ID        int64  `json:"id"`
 	UserID    int64  `json:"user_id"`
 	APIKeyID  int64  `json:"api_key_id"`
-	AccountID int64  `json:"account_id"`
 	RequestID string `json:"request_id"`
 	Model     string `json:"model"`
 	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
 	ServiceTier *string `json:"service_tier,omitempty"`
 	// ReasoningEffort is the client-requested effort (mapping-hidden, like Model).
 	// OpenAI: "low"/"medium"/"high"/"xhigh"; Claude: "low"/"medium"/"high"/"max".
-	// Historical rows without requested_reasoning_effort fall back to the stored effective value.
+	// Missing historical request metadata stays unknown; never expose effective effort.
 	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
 	// InboundEndpoint is the client-facing API endpoint path, e.g. /v1/chat/completions.
 	InboundEndpoint *string `json:"inbound_endpoint,omitempty"`
@@ -683,6 +685,7 @@ type UsageLog struct {
 // AdminUsageLog 是管理员接口使用的 usage log DTO（包含管理员字段）。
 type AdminUsageLog struct {
 	UsageLog
+	AccountID int64 `json:"account_id"`
 
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Omitted when no mapping was applied (requested model was used as-is).

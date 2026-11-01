@@ -18,6 +18,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -2517,6 +2518,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "invalid JSON payload")
 		return
 	}
+	jackprivacy.CaptureClientFrame(ctx, firstMessage)
 	reqModel := strings.TrimSpace(gjson.GetBytes(firstMessage, "model").String())
 	if reqModel == "" {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
@@ -3299,7 +3301,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// gateway-chosen close frame; mirror the client's clean 1000
 				// rather than the 1011 the proxy-failure tail would have sent.
 				if hasClientCloseErr {
-					closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+					closeOpenAIClientWS(wsConn, closeErr.StatusCode(), jackprivacy.CloseReason(ctx, closeErr.Reason()))
 				} else {
 					closeOpenAIClientWS(wsConn, coderws.StatusNormalClosure, "")
 				}
@@ -3328,7 +3330,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			}
 			reqLog.Warn("openai.websocket_proxy_failed", proxyFailedFields...)
 			if hasClientCloseErr {
-				closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+				closeOpenAIClientWS(wsConn, closeErr.StatusCode(), jackprivacy.CloseReason(ctx, closeErr.Reason()))
 				return
 			}
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "upstream websocket proxy failed")

@@ -117,6 +117,7 @@
                     :stroke-width="2"
                   />
                 </button>
+                <MappingVisibilityToggle v-if="activeTab === 'usage'" v-model="showMappings" />
               </div>
             </div>
           </template>
@@ -125,7 +126,7 @@
         <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
           <UsageTable
             flat
-            :data="usageLogs"
+            :data="displayUsageLogs"
             :loading="loading"
             :columns="visibleColumns"
             :server-side-sort="true"
@@ -185,6 +186,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import MappingVisibilityToggle from '@/jack/usage/MappingVisibilityToggle.vue'
+import { useMappingVisibility } from '@/jack/usage/useMappingVisibility'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
@@ -214,6 +217,7 @@ type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
 const route = useRoute()
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
+const { showMappings, displayRecords: displayUsageLogs } = useMappingVisibility(usageLogs)
 const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
 const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const modelDistributionSource = ref<ModelDistributionSource>('requested')

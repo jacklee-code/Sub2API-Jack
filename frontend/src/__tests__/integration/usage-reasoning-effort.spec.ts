@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { defineComponent } from 'vue'
+import { defineComponent, ref } from 'vue'
 
 import UserUsageView from '@/views/user/UsageView.vue'
 import AdminUsageView from '@/views/admin/UsageView.vue'
@@ -133,6 +133,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
+      locale: ref('en'),
       t: (key: string) => messages[key] ?? key,
     }),
   }
@@ -196,6 +197,10 @@ const adminMappedLog = {
   user: { email: 'liu.jialin@code-dance.com' },
   account: { name: 'codex-wang' },
   upstream_reasoning_effort: 'xhigh',
+  upstream_model: 'private-model',
+  upstream_response_model: 'private-snapshot',
+  upstream_model_mismatch: true,
+  model_mapping_chain: 'gpt-5.4→private-model',
 }
 
 const sharedPageStubs = {
@@ -259,7 +264,7 @@ describe('usage reasoning effort page display', () => {
     expect(wrapper.text()).not.toContain('XHigh')
   })
 
-  it('admin usage page shows requested and mapped effort after the column is enabled', async () => {
+  it('admin usage page reveals mapped effort only after Show mappings is selected', async () => {
     const wrapper = mount(AdminUsageView, {
       global: {
         stubs: {
@@ -282,10 +287,19 @@ describe('usage reasoning effort page display', () => {
     await wrapper.get('[data-testid="usage-column-toggle-reasoning_effort"]').trigger('click')
     await flushPromises()
 
-    const cell = reasoningCellText(wrapper)
-    expect(cell).toContain('Max')
-    expect(cell).toContain('XHigh')
-    expect(cell).toContain('↳')
+    expect(reasoningCellText(wrapper)).toContain('Max')
+    expect(reasoningCellText(wrapper)).not.toContain('XHigh')
+    expect(reasoningCellText(wrapper)).not.toContain('↳')
+    expect(wrapper.text()).not.toContain('private-model')
+    expect(wrapper.text()).not.toContain('private-snapshot')
+    await wrapper.get('[data-testid="usage-show-mappings"]').trigger('click')
+    expect(reasoningCellText(wrapper)).toContain('XHigh')
+    expect(reasoningCellText(wrapper)).toContain('↳')
+    expect(wrapper.text()).toContain('private-model')
+    expect(wrapper.text()).toContain('private-snapshot')
+    await wrapper.get('[data-testid="usage-show-mappings"]').trigger('click')
+    expect(reasoningCellText(wrapper)).not.toContain('XHigh')
+    expect(wrapper.text()).not.toContain('private-model')
   })
 
   it('admin usage page shows a single value when reasoning effort was not mapped', async () => {
