@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"net/http"
+
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 )
 
 func setOpenAIChatGPTAccountHeaders(headers http.Header, account *Account) {

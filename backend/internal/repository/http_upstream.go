@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"io"
 	"log/slog"
 	"net"
@@ -35,6 +34,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 )
 
 // 默认配置常量
