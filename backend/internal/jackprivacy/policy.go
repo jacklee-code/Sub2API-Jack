@@ -413,8 +413,8 @@ func (p *Policy) Headers(h http.Header) {
 			delete(h, key)
 			continue
 		}
-		// Continuation blobs and quotas are opaque protocol values, not error text.
-		if strings.HasPrefix(strings.ToLower(key), "x-codex-") {
+		// The continuation blob is opaque protocol state, not diagnostic text.
+		if strings.EqualFold(key, "x-codex-turn-state") {
 			continue
 		}
 		for i, v := range values {
