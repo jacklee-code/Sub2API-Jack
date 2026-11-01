@@ -40,6 +40,7 @@ func TestResolveModelDimensionExpression(t *testing.T) {
 		want      string
 	}{
 		{usagestats.ModelSourceRequested, "COALESCE(NULLIF(TRIM(requested_model), ''), model)"},
+		{usagestats.ModelSourcePublicRequested, "CASE WHEN jack_request_metadata_verified THEN COALESCE(NULLIF(TRIM(requested_model), ''), 'unknown') ELSE 'unknown' END"},
 		{usagestats.ModelSourceUpstream, "COALESCE(NULLIF(TRIM(upstream_model), ''), model)"},
 		{usagestats.ModelSourceMapping, "(COALESCE(NULLIF(TRIM(requested_model), ''), model) || ' -> ' || COALESCE(NULLIF(TRIM(upstream_model), ''), model))"},
 		{"", "COALESCE(NULLIF(TRIM(requested_model), ''), model)"},

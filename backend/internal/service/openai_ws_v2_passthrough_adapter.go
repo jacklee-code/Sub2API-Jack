@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
@@ -651,7 +652,11 @@ func (c *openAIWSClientFrameConn) WriteFrame(ctx context.Context, msgType coderw
 			payload = c.restoreToolNames(payload)
 		}
 	}
-	return c.conn.Write(ctx, msgType, payload)
+	privacyCtx := ctx
+	if c.controlCtx != nil {
+		privacyCtx = c.controlCtx
+	}
+	return c.conn.Write(ctx, msgType, jackprivacy.ClientFrame(privacyCtx, payload))
 }
 
 func (c *openAIWSClientFrameConn) Close() error {
@@ -785,7 +790,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		eventBytes := buildOpenAIFastPolicyBlockedWSEvent(blocked)
 		if eventBytes != nil {
 			writeCtx, cancelWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
-			_ = clientConn.Write(writeCtx, coderws.MessageText, eventBytes)
+			_ = clientConn.Write(writeCtx, coderws.MessageText, jackprivacy.ClientFrame(ctx, eventBytes))
 			cancelWrite()
 		}
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
@@ -996,6 +1001,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					}
 				}()
 			}
+			jackprivacy.CaptureClientFrame(ctx, payload)
 			responsesLite := isResponseCreate && isOpenAIResponsesLiteWebSocketPayload(payload)
 			if isResponseCreate {
 				if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBodyWithConfig(s.cfg, payload, account, responsesLite); normalizeErr != nil {
@@ -1130,7 +1136,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				return
 			}
 			writeCtx, cancel := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
-			_ = clientConn.Write(writeCtx, coderws.MessageText, eventBytes)
+			_ = clientConn.Write(writeCtx, coderws.MessageText, jackprivacy.ClientFrame(ctx, eventBytes))
 			cancel()
 		},
 	}
@@ -1272,7 +1278,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				// frame limit; an oversized reason makes coder/websocket skip the
 				// close frame, leaving the client with EOF instead of the status code.
 				reason = truncateString(reason, 120)
-				_ = clientConn.Close(status, reason)
+				_ = clientConn.Close(status, jackprivacy.CloseReason(ctx, reason))
 				_ = clientConn.CloseNow()
 			},
 			BeforeWriteClient: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error {
@@ -1339,7 +1345,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			status = coderws.StatusTryAgainLater
 			reason = "websocket ingress capacity lease lost; please reconnect"
 		}
-		_ = clientConn.Close(status, reason)
+		_ = clientConn.Close(status, jackprivacy.CloseReason(ctx, reason))
 		_ = clientConn.CloseNow()
 		return NewOpenAIWSClientCloseError(status, reason, cause)
 	}

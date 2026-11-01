@@ -102,14 +102,17 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
-	ID        int64
-	UserID    int64
-	APIKeyID  int64
-	AccountID int64
-	RequestID string
-	Model     string
+	// LegacyRequestMetadata preserves old values for admins without presenting
+	// formerly coalesced effective values as verified client input.
+	LegacyRequestMetadata bool
+	ID                    int64
+	UserID                int64
+	APIKeyID              int64
+	AccountID             int64
+	RequestID             string
+	Model                 string
 	// RequestedModel is the client-requested model name recorded for stable user/admin display.
-	// Empty should be treated as Model for backward compatibility with historical rows.
+	// Empty stays unknown to ordinary users; only the admin DTO may fall back to Model.
 	RequestedModel string
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Nil means no mapping was applied (requested model was used as-is).

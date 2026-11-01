@@ -778,7 +778,7 @@ func (r *channelMonitorV2Repository) loadErrorDetails(ctx context.Context, filte
 	query := `SELECT
 			lower(COALESCE(NULLIF(TRIM(current_error.platform), ''), 'unknown')) AS platform,
 			COALESCE(current_error.group_id, 0) AS group_id,
-			COALESCE(NULLIF(TRIM(current_error.requested_model), ''), NULLIF(TRIM(current_error.model), ''), 'unknown') AS model,
+			COALESCE(NULLIF(TRIM(current_error.requested_model), ''), 'unknown') AS model,
 			COALESCE(current_error.error_type, '') AS error_type,
 			COALESCE(current_error.error_owner, '') AS error_owner,
 			COALESCE(current_error.error_source, '') AS error_source,

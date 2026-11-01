@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -32,10 +33,13 @@ func TestAstraForwardPreservesMaxInPayloadAndUsage(t *testing.T) {
 				account := rawGPT56ResponsesAPIKeyAccount(requestedModel, "gpt-6-astra")
 				body, err := json.Marshal(map[string]any{"model": requestedModel, "stream": stream, "input": "hello", "reasoning": map[string]string{"effort": "max"}})
 				require.NoError(t, err)
+				privacy := jackprivacy.New(true, false, "application/json", "", CanonicalRequestedReasoningEffort)
+				_, _ = privacy.Write(body)
+				ctx := jackprivacy.WithPolicy(context.Background(), privacy)
 				c, _ := gin.CreateTestContext(httptest.NewRecorder())
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
 				SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
-				result, err := svc.Forward(context.Background(), c, account, body)
+				result, err := svc.Forward(ctx, c, account, body)
 				require.NoError(t, err)
 				require.NotNil(t, result)
 				require.Equal(t, "gpt-6-astra", gjson.GetBytes(upstream.lastBody, "model").String())
@@ -45,7 +49,7 @@ func TestAstraForwardPreservesMaxInPayloadAndUsage(t *testing.T) {
 				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 				billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
 				usageService := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
-				err = usageService.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+				err = usageService.RecordUsage(ctx, &OpenAIRecordUsageInput{
 					Result: result, Account: account, User: &User{ID: 21}, APIKey: &APIKey{ID: 22, Group: &Group{RateMultiplier: 1}},
 				})
 				require.NoError(t, err)

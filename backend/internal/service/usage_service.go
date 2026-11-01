@@ -395,7 +395,7 @@ func (s *UsageService) GetGroupStatsWithFilters(ctx context.Context, startTime, 
 
 // GetAPIKeyModelStats returns per-model usage stats for a specific API Key.
 func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
-	stats, err := s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
+	stats, err := s.GetModelStatsWithFiltersBySource(ctx, startTime, endTime, usagestats.UsageLogFilters{APIKeyID: apiKeyID}, usagestats.ModelSourcePublicRequested)
 	if err != nil {
 		return nil, fmt.Errorf("get api key model stats: %w", err)
 	}

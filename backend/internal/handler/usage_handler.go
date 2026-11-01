@@ -209,7 +209,7 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 			APIKeyID:           apiKeyID,
 			GroupID:            groupID,
 			Model:              strings.TrimSpace(c.Query("model")),
-			ModelFilterSource:  usagestats.ModelSourceRequested,
+			ModelFilterSource:  usagestats.ModelSourcePublicRequested,
 			RequestType:        requestType,
 			Stream:             stream,
 			NativeCompactionV2: nativeCompactionV2,
@@ -501,7 +501,7 @@ func (h *UsageHandler) DashboardModels(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourceRequested)
+	stats, err := h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourcePublicRequested)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -555,7 +555,7 @@ func (h *UsageHandler) DashboardSnapshotV2(c *gin.Context) {
 		resp["trend"] = trend
 	}
 	if includeModels {
-		models, err := h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourceRequested)
+		models, err := h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourcePublicRequested)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

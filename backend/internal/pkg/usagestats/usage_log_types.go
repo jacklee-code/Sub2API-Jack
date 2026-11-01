@@ -7,6 +7,9 @@ const (
 	ModelSourceRequested = "requested"
 	ModelSourceUpstream  = "upstream"
 	ModelSourceMapping   = "mapping"
+	// ModelSourcePublicRequested excludes legacy rows whose requested metadata
+	// may have been backfilled from the upstream model. Internal use only.
+	ModelSourcePublicRequested = "requested_public"
 )
 
 func IsValidModelSource(source string) bool {
@@ -19,7 +22,7 @@ func IsValidModelSource(source string) bool {
 }
 
 func NormalizeModelSource(source string) string {
-	if IsValidModelSource(source) {
+	if IsValidModelSource(source) || source == ModelSourcePublicRequested {
 		return source
 	}
 	return ModelSourceRequested

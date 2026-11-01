@@ -95,9 +95,6 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 		return nil
 	}
 	model := e.RequestedModel
-	if model == "" {
-		model = e.Model
-	}
 	clientIP := ""
 	if e.ClientIP != nil {
 		clientIP = *e.ClientIP

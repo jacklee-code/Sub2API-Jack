@@ -450,6 +450,55 @@ work and new keys appear in 繁中 automatically.
   bundled Noto SC faces, which cover every character the converted messages use
   (glyph shapes follow the mainland standard); no TC font is bundled.
 
+## Client routing metadata privacy
+
+`internal/jackprivacy` owns the ordinary-client output policy. The small router
+hook installs `JackRoutingPrivacy` outside the gateway ops capture layer, so
+observations, billing and administrator records retain raw upstream information.
+Verified JWT/API-key roles determine administrator access; UI/request headers
+never grant it. API-key context also classifies new gateway aliases automatically.
+
+- Original model/effort are captured from the ingress before composite routes,
+  group policy or account mapping. Ordinary JSON, SSE and WebSocket metadata uses
+  those values; unknown settings are omitted. User text, tool arguments, schemas
+  and media are not rewritten. This protects protocol metadata, not claims that a
+  model generates in its text. SSE events are assembled across arbitrary write
+  boundaries; JSON and individual events have a 64 MiB fail-closed buffer limit.
+- Ordinary usage DTOs omit `account_id`; group DTOs omit effort mappings/ceilings.
+  User error history and gateway error envelopes use generic messages and retain
+  only known machine error types/codes. Provider-specific error details remain in
+  administrator logs. Sensitive/unknown gateway response headers are removed at
+  the final boundary, including custom allowlist additions and explicit Codex
+  quota/turn-state headers. Ordinary clients do not receive upstream turn-state
+  optimizations or account-wide quota windows. Necessary transport headers and
+  `x-reasoning-included` are retained.
+- Direct WS writers have focused hooks, including passthrough, context-pool,
+  HTTP bridge, Live sideband and Grok realtime. Capture the original next-turn
+  frame before rewriting; sanitize only the client-facing copy. Keep these hooks
+  when upstream changes a socket write path.
+- Jack migration `005_usage_request_privacy.sql` adds the provenance column
+  `usage_logs.jack_request_metadata_verified`. Existing rows and older writers
+  default to false; the new insert paths explicitly write true. Unverified
+  historical model/effort remain available to administrators but display as
+  unknown to ordinary users. Requested-model aggregates also avoid effective
+  fallbacks for user-facing queries; administrator aggregates retain the original
+  model dimensions. No usage, charge, subscription or account record is deleted.
+- Migration `006_rebuild_private_monitor_models.sql` invalidates only derived
+  channel-monitor facts/rollups and resets their backfill watermark. Earlier
+  versions could persist effective-model fallbacks there. The existing bounded
+  background worker rebuilds the cache; monitor charts temporarily show pending
+  coverage. Source usage/error logs and monitor configuration are retained.
+- The migration is additive and older binaries ignore the new column. Rolling
+  back to an older binary also rolls back the output protection; its new rows
+  remain unverified on re-upgrade because the column default stays false. Do not
+  mark historical rows verified without independent original-request evidence.
+
+The administrator usage page defaults to hiding the mapping annotations. Its
+column menu's **Show mappings / 顯示映射** preference lives in
+`frontend/src/jack/usage/`; it projects a display copy of the records and keeps
+the shared upstream `UsageTable` unchanged. The raw admin API data and exports
+retain all mappings. The preference is independent of upstream column settings.
+
 ## Deployment and recovery
 
 Copy `deploy/jack/switch-image.sh` into the existing deployment directory and run

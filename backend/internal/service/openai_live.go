@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	coderws "github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -531,6 +532,7 @@ func (s *OpenAIGatewayService) ProxyLiveSideband(
 				errCh <- readErr
 				return
 			}
+			jackprivacy.CaptureClientFrame(ctx, payload)
 			if writeErr := upstream.WriteFrame(proxyCtx, messageType, payload); writeErr != nil {
 				errCh <- writeErr
 				return
@@ -544,7 +546,13 @@ func (s *OpenAIGatewayService) ProxyLiveSideband(
 				errCh <- liveSidebandReadError(readErr)
 				return
 			}
-			if writeErr := downstream.Write(proxyCtx, messageType, payload); writeErr != nil {
+			clientPayload := payload
+			if messageType == coderws.MessageBinary {
+				clientPayload = jackprivacy.ClientMediaFrame(ctx, payload)
+			} else {
+				clientPayload = jackprivacy.ClientFrame(ctx, payload)
+			}
+			if writeErr := downstream.Write(proxyCtx, messageType, clientPayload); writeErr != nil {
 				errCh <- writeErr
 				return
 			}

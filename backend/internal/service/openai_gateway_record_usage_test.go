@@ -1611,8 +1611,9 @@ func TestOpenAIGatewayServiceRecordUsage_UsesRequestedModelAndUpstreamModelMetad
 	require.Equal(t, serviceTier, *usageRepo.lastLog.ServiceTier)
 	require.NotNil(t, usageRepo.lastLog.ReasoningEffort)
 	require.Equal(t, reasoning, *usageRepo.lastLog.ReasoningEffort)
-	require.NotNil(t, usageRepo.lastLog.RequestedReasoningEffort)
-	require.Equal(t, reasoning, *usageRepo.lastLog.RequestedReasoningEffort)
+	// This direct service caller supplied only effective effort. Do not certify
+	// it as original client input in the public usage record.
+	require.Nil(t, usageRepo.lastLog.RequestedReasoningEffort)
 	require.NotNil(t, usageRepo.lastLog.UserAgent)
 	require.Equal(t, "codex-cli/1.0", *usageRepo.lastLog.UserAgent)
 	require.NotNil(t, usageRepo.lastLog.IPAddress)
