@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 )
 
 func TestMapUserErrorCategory(t *testing.T) {
@@ -95,7 +93,7 @@ func TestToUserErrorRequest_RedactsSensitiveFields(t *testing.T) {
 	if out.StatusCode != 429 || out.InboundEndpoint != "/v1/chat/completions" || out.Platform != "openai" {
 		t.Errorf("basic fields wrong: %+v", out)
 	}
-	if out.Message != "Request failed" {
+	if out.Message != src.Message {
 		t.Errorf("want redacted OpenAI message, got %q", out.Message)
 	}
 	if out.KeyName != "my-key" {
@@ -142,10 +140,10 @@ func TestToUserErrorRequestDetail_WhitelistAndRedacts(t *testing.T) {
 	if out.ID != 999 {
 		t.Errorf("want ID=999, got %d", out.ID)
 	}
-	if out.Message != "Request failed" {
+	if out.Message != src.Message {
 		t.Errorf("want redacted OpenAI message, got %q", out.Message)
 	}
-	if out.ErrorBody != jackprivacy.GenericError {
+	if out.ErrorBody != src.ErrorBody {
 		t.Errorf("ErrorBody mismatch")
 	}
 	if out.UpstreamStatusCode == nil || *out.UpstreamStatusCode != 503 {

@@ -469,16 +469,28 @@ frames, public usage fallbacks and group policies retain the earlier behavior.
   are processed independently, including LF, CRLF and CR boundaries; the first
   event is flushed before the complete answer is available. Socket hooks are
   limited to selected OpenAI accounts, including Responses and Live sideband.
-- Only identity/model/effort/fingerprint and explicit private-route headers are
+- Only account-ID/model/effort headers are
   removed at the final boundary. The gateway's existing header filter continues
   to control all other headers. Codex quota windows and `x-codex-turn-state` are
   retained, including compact and WebSocket handshakes. Keep the existing
   same-account/cross-account turn-state echo guard; never globally strip state.
 - Public OpenAI usage omits account ID and effective model/effort fallbacks;
-  OpenAI error records show generic provider messages. User filters and sorts
+  OpenAI error records retain useful messages with targeted redaction. User filters and sorts
   apply that policy only to OpenAI/unknown-origin rows. Known other providers use
   their original requested-then-effective fallback. Actual account platform wins
   over group platform; orphaned records without provider evidence stay protected.
+- Preserve budget_tokens/thinking_budget/thinking_level, organization IDs,
+  fingerprints, upstream request IDs and mismatch flags in protocol metadata.
+  SSE id/retry/comments/custom event names and line endings are retained; only
+  sensitive values are redacted. WebSocket close reasons keep their useful text.
+- Error envelopes retain status, type, arbitrary codes, params and details. The
+  per-request policy learns actual model/account IDs from trusted dispatch
+  metadata, outgoing account headers and structured responses, then masks those
+  tokens in error text. Explicit account/model/effort labels are also redacted;
+  unrelated UUIDs, numbers and words such as "high load" are preserved. Opaque,
+  previously unknown values without labels cannot reliably be identified in
+  free text. Client content and Codex continuation blobs are not text-scanned.
+  No additional upstream calls or full request-body copies are introduced.
 - OpenAI-only group DTOs omit effort mappings/ceilings. Shared Composite group
   settings and other providers' settings remain available, so this does not hide
   policies shared across providers. Protection of actual per-request metadata

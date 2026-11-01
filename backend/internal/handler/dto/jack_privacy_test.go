@@ -12,6 +12,8 @@ import (
 func TestJackUserMetadataAndAdminPreservation(t *testing.T) {
 	requested, actual, upstream := "xhigh", "low", "private-model"
 	log := &service.UsageLog{AccountID: 73, Model: "private-model", RequestedModel: "public-model", RequestedReasoningEffort: &requested, ReasoningEffort: &actual, UpstreamModel: &upstream}
+	mismatch := true
+	log.UpstreamModelMismatch = &mismatch
 	user, err := json.Marshal(UsageLogFromService(log))
 	require.NoError(t, err)
 	require.NotContains(t, string(user), "account_id")
@@ -20,6 +22,7 @@ func TestJackUserMetadataAndAdminPreservation(t *testing.T) {
 	admin, err := json.Marshal(UsageLogFromServiceAdmin(log))
 	require.NoError(t, err)
 	require.Contains(t, string(admin), `"account_id":73`)
+	require.Contains(t, string(admin), `"upstream_model_mismatch":true`)
 	require.Contains(t, string(admin), `"upstream_model":"private-model"`)
 	require.Contains(t, string(admin), `"upstream_reasoning_effort":"low"`)
 	log.LegacyRequestMetadata = true

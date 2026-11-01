@@ -101,7 +101,7 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 	model := e.RequestedModel
 	message := e.Message
 	if ProtectOpenAIRouting(e.Platform) {
-		message = "Request failed"
+		message = userErrorPrivacyPolicy(e).Text(message)
 	} else if model == "" {
 		model = e.Model
 	}
@@ -145,11 +145,20 @@ func ToUserErrorRequestDetail(e *OpsErrorLogDetail) *UserErrorRequestDetail {
 	base := ToUserErrorRequest(&e.OpsErrorLog)
 	body := e.ErrorBody
 	if ProtectOpenAIRouting(e.Platform) {
-		body = jackprivacy.GenericError
+		policy := userErrorPrivacyPolicy(&e.OpsErrorLog)
+		body = string(policy.ErrorJSON([]byte(body)))
+		base.Message = policy.Text(e.Message)
 	}
 	return &UserErrorRequestDetail{
 		UserErrorRequest:   *base,
 		ErrorBody:          body,
 		UpstreamStatusCode: e.UpstreamStatusCode,
 	}
+}
+
+func userErrorPrivacyPolicy(e *OpsErrorLog) *jackprivacy.Policy {
+	p := jackprivacy.New(true, false, "application/json", e.RequestedModel, nil)
+	p.Remember("model", e.Model)
+	p.Remember("model", e.UpstreamModel)
+	return p
 }

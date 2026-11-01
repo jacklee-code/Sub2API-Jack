@@ -14,7 +14,7 @@ func TestMediaAndCloseFrames(t *testing.T) {
 	audio := []byte{0, 1, 0xff, 3}
 	require.Equal(t, audio, ClientMediaFrame(ctx, audio))
 	require.NotContains(t, string(ClientMediaFrame(ctx, []byte(`{"model":"private-model","account_id":"provider-id"}`))), "private-model")
-	require.Equal(t, "Request ended", CloseReason(ctx, "private-model for provider-id"))
+	require.Equal(t, "[redacted] for [redacted]", CloseReason(ctx, "private-model for provider-id"))
 	require.Empty(t, CloseReason(ctx, ""))
 	p.SetAdmin(true)
 	require.Equal(t, "private-model for provider-id", CloseReason(ctx, "private-model for provider-id"))
@@ -29,8 +29,10 @@ func TestNormalizedMatchesPreviousRules(t *testing.T) {
 
 func TestContextLimitHintDoesNotExposeRouting(t *testing.T) {
 	p := New(true, false, "application/json", "public-model", nil)
+	p.Remember("model", "private-model")
+	p.Remember("account_id", "provider-account")
 	body := p.ErrorJSON([]byte(`{"error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"private-model limit for provider-account"}}`))
-	require.Contains(t, string(body), `"message":"context_length_exceeded"`)
+	require.Contains(t, string(body), `"message":"[redacted] limit for [redacted]"`)
 	require.NotContains(t, string(body), "private-model")
 	require.NotContains(t, string(body), "provider-account")
 }

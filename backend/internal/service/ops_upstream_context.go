@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/jackprivacy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -96,6 +97,9 @@ func SetOpsUpstreamModel(c *gin.Context, model string) {
 	}
 	if model = strings.TrimSpace(model); model != "" {
 		c.Set(OpsUpstreamModelKey, model)
+		if c.Request != nil {
+			jackprivacy.Remember(c.Request.Context(), "model", model)
+		}
 	}
 }
 

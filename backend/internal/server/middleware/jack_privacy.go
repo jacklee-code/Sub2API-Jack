@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -316,6 +317,8 @@ func (w *jackPrivacyWriter) finish() {
 	} else {
 		body = w.policy.JSON(body)
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if json.Valid(body) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
 	_ = w.emit(body)
 }

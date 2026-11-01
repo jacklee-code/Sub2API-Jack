@@ -45,6 +45,7 @@ type Policy struct {
 	contentType    string
 	requested      Requested
 	parseEffort    EffortParser
+	secrets        map[string]struct{}
 }
 
 func New(gateway, errorHistory bool, contentType, pathModel string, parser EffortParser) *Policy {
@@ -240,7 +241,7 @@ func ClientMediaFrame(ctx context.Context, body []byte) []byte {
 
 func CloseReason(ctx context.Context, reason string) string {
 	if p := FromContext(ctx); p.Enabled() && !p.IsAdmin() && reason != "" {
-		return "Request ended"
+		return p.Text(reason)
 	}
 	return reason
 }
@@ -261,6 +262,7 @@ func (p *Policy) JSON(body []byte) []byte {
 	if decoder.Decode(&extra) != io.EOF {
 		return []byte(GenericError)
 	}
+	p.observe(value)
 	p.scrub(value, p.Requested())
 	out, err := json.Marshal(value)
 	if err != nil {
@@ -269,20 +271,32 @@ func (p *Policy) JSON(body []byte) []byte {
 	return out
 }
 
-// HTTP failures may use non-OpenAI shapes (detail, plain text, HTML, etc.).
-// Normalize the complete envelope so no provider-specific text escapes in them.
+// ErrorJSON retains the upstream error envelope, including custom codes and
+// details. Plain-text/HTML errors keep their useful text and content type.
 func (p *Policy) ErrorJSON(body []byte) []byte {
 	if !p.Enabled() || p.IsAdmin() {
 		return body
 	}
 	var value any
-	_ = json.Unmarshal(body, &value)
-	if node, ok := value.(map[string]any); ok {
-		if nested, exists := node["error"]; exists {
-			value = nested
-		}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if decoder.Decode(&value) != nil {
+		return []byte(p.Text(string(body)))
 	}
-	out, _ := json.Marshal(map[string]any{"error": safeError(value)})
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return []byte(p.Text(string(body)))
+	}
+	p.observe(value)
+	if text, ok := value.(string); ok {
+		value = p.Text(text)
+	} else {
+		p.scrubError(value, p.Requested())
+	}
+	out, err := json.Marshal(value)
+	if err != nil {
+		return []byte(GenericError)
+	}
 	return out
 }
 
@@ -297,178 +311,112 @@ func normalized(key string) string {
 	}, key)
 }
 
-func privateField(name string) bool {
-	if strings.Contains(name, "accountid") {
-		return true
-	}
+func accountField(name string) bool {
+	return strings.Contains(name, "accountid") || strings.Contains(name, "accountuuid")
+}
+func modelField(name string) bool {
 	switch name {
-	case "account", "accountid", "accountids", "accountname", "chatgptaccountid", "parentaccountid", "parentchatgptaccountid",
-		"organizationid", "upstreammodel", "upstreamresponsemodel", "upstreamreasoningeffort", "upstreammodelmismatch",
-		"upstreamrequestid", "modelmappingchain", "modelmapping", "reasoningeffortmappings", "maxreasoningeffort",
-		"maxreasoningeffortoverlimit", "systemfingerprint":
+	case "model", "modelversion", "modelname", "modelid", "basemodel", "actualmodel", "resolvedmodel", "effectivemodel", "upstreammodel", "upstreamresponsemodel":
 		return true
 	}
 	return false
 }
-
-func (p *Policy) scrub(value any, requested Requested) {
+func effortField(name string) bool {
+	switch name {
+	case "reasoningeffort", "effort", "actualeffort", "effectiveeffort", "upstreamreasoningeffort":
+		return true
+	}
+	return false
+}
+func privateField(name string) bool {
+	return accountField(name) || name == "upstreammodel" || name == "upstreamresponsemodel" || name == "upstreamreasoningeffort" || name == "modelmappingchain" || name == "modelmapping" || name == "reasoningeffortmappings" || name == "maxreasoningeffort" || name == "maxreasoningeffortoverlimit"
+}
+func contentField(name string) bool {
+	switch name {
+	case "arguments", "parameters", "schema", "jsonschema", "content", "text", "delta", "input", "instructions", "tool", "embedding":
+		return true
+	}
+	return false
+}
+func (p *Policy) scrub(value any, requested Requested)      { p.scrubValue(value, requested, false) }
+func (p *Policy) scrubError(value any, requested Requested) { p.scrubValue(value, requested, true) }
+func (p *Policy) scrubValue(value any, requested Requested, errorText bool) {
 	switch node := value.(type) {
 	case []any:
-		for _, child := range node {
-			p.scrub(child, requested)
+		for i, child := range node {
+			if str, ok := child.(string); ok && errorText {
+				node[i] = p.Text(str)
+			} else {
+				p.scrubValue(child, requested, errorText)
+			}
 		}
 	case map[string]any:
-		if typ, _ := node["type"].(string); p.IsGateway() && typ == "error" {
-			value := any(node)
-			if nested, ok := node["error"]; ok {
-				value = nested
-			}
-			safe := safeError(value)
-			for key := range node {
-				delete(node, key)
-			}
-			node["type"] = "error"
-			node["error"] = safe
-			return
+		if typ, _ := node["type"].(string); typ == "error" {
+			errorText = true
 		}
 		for key, child := range node {
 			name := normalized(key)
-			if p.ChatHistory && name == "error" {
-				if message, ok := child.(string); ok && message != "" && message != "context_length_exceeded" {
-					node[key] = "Request failed"
+			if name == "account" {
+				if obj, ok := child.(map[string]any); ok {
+					delete(obj, "id")
+				} else {
+					delete(node, key)
+					continue
 				}
-				continue
-			}
-			if p.ChatHistory && name == "message" && node["type"] == "error" {
-				node[key] = "Request failed"
-				continue
-			}
-			if p.ChatHistory && name == "imageerrors" {
-				delete(node, key)
-				continue
 			}
 			if privateField(name) {
 				delete(node, key)
 				continue
 			}
-			if p.ErrorHistory && (name == "message" || name == "errorbody") {
-				if name == "errorbody" {
-					node[key] = GenericError
-				} else {
-					node[key] = "Request failed"
-				}
-				continue
-			}
-			if p.IsGateway() {
-				switch name {
-				case "model":
-					if p.RequestHistory {
-						continue
-					}
-					fallthrough
-				case "modelversion", "modelname", "modelid", "basemodel", "actualmodel", "resolvedmodel", "effectivemodel":
-					if requested.Model == "" {
-						delete(node, key)
-					} else {
-						node[key] = requested.Model
-					}
-					continue
-				case "reasoningeffort", "effort", "actualeffort", "effectiveeffort":
-					if requested.Effort == nil || *requested.Effort == "" {
-						delete(node, key)
-					} else {
-						node[key] = *requested.Effort
-					}
-					continue
-				case "budgettokens", "thinkingbudget", "thinkinglevel":
+			if p.IsGateway() && modelField(name) && !(name == "model" && p.RequestHistory) {
+				if requested.Model == "" {
 					delete(node, key)
-					continue
-				case "reasoning", "outputconfig":
-					if settings, ok := child.(map[string]any); ok {
-						if _, exists := settings["effort"]; exists {
-							if requested.Effort == nil || *requested.Effort == "" {
-								delete(settings, "effort")
-							} else {
-								settings["effort"] = *requested.Effort
-							}
-						}
-					}
-				case "error":
-					if child != nil {
-						node[key] = safeError(child)
-					}
-					continue
+				} else {
+					node[key] = requested.Model
 				}
-				// Responses error events also have top-level message/code fields.
-				if typ, _ := node["type"].(string); typ == "error" {
-					if name == "message" {
-						node[key] = "Request failed"
-						continue
-					}
-					if name == "code" || name == "param" {
-						delete(node, key)
-						continue
-					}
-				}
-			}
-			// These are user/model content, not routing envelopes. Never rewrite a
-			// generated tool argument, schema or text that happens to use "model".
-			switch name {
-			case "arguments", "parameters", "schema", "jsonschema", "content", "text", "delta", "input", "instructions", "tool", "embedding":
 				continue
 			}
-			p.scrub(child, requested)
+			if p.IsGateway() && effortField(name) {
+				if requested.Effort == nil || *requested.Effort == "" {
+					delete(node, key)
+				} else {
+					node[key] = *requested.Effort
+				}
+				continue
+			}
+			nestedError := errorText || name == "error"
+			if str, ok := child.(string); ok && nestedError {
+				node[key] = p.Text(str)
+				continue
+			}
+			if contentField(name) && !nestedError {
+				continue
+			}
+			p.scrubValue(child, requested, nestedError)
 		}
 	}
 }
 
-func safeError(value any) map[string]any {
-	out := map[string]any{"type": "upstream_error", "message": "Request failed"}
-	if node, ok := value.(map[string]any); ok {
-		if typ, _ := node["type"].(string); safeErrorType(typ) {
-			out["type"] = typ
-		}
-		if code, _ := node["code"].(string); safeErrorCode(code) {
-			out["code"] = code
-		}
-	}
-	if out["code"] == "context_length_exceeded" || out["type"] == "context_length_exceeded" {
-		out["message"] = "context_length_exceeded"
-	}
-	return out
-}
-func safeErrorType(v string) bool {
-	switch v {
-	case "invalid_request_error", "authentication_error", "permission_error", "rate_limit_error", "overloaded_error", "api_error", "upstream_error", "server_error", "not_found_error", "context_length_exceeded":
-		return true
-	}
-	return false
-}
-func safeErrorCode(v string) bool {
-	switch v {
-	case "context_length_exceeded", "rate_limit_exceeded", "server_error", "invalid_request_error", "insufficient_quota", "content_policy_violation", "cyber_policy", "unsupported_parameter":
-		return true
-	}
-	return false
-}
-
-// Headers is the final downstream boundary, after specialized header writers.
-// AdditionalAllowed must not re-enable private headers for an ordinary user.
+// Headers removes only account IDs and actual model/effort values. Other
+// operational headers retain the existing gateway policy.
 func (p *Policy) Headers(h http.Header) {
 	if !p.Enabled() || p.IsAdmin() {
 		return
 	}
-	for key := range h {
-		name := strings.ToLower(key)
-		field := normalized(name)
-		identity := strings.Contains(field, "accountid") || strings.Contains(field, "accountuuid") || strings.Contains(field, "accountname") || strings.Contains(field, "organizationid") || strings.HasSuffix(field, "account") || strings.HasSuffix(field, "organization")
-		model := strings.HasSuffix(field, "model") || strings.HasSuffix(field, "modelname") || strings.HasSuffix(field, "modelid") || strings.HasSuffix(field, "modelversion")
-		if identity || model || strings.HasSuffix(field, "effort") || strings.HasSuffix(field, "systemfingerprint") || name == "x-private-route" || name == "x-upstream-route" {
+	p.ObserveHeaders(h)
+	for key, values := range h {
+		field := normalized(key)
+		if accountField(field) || strings.HasSuffix(field, "model") || strings.HasSuffix(field, "modelname") || strings.HasSuffix(field, "modelid") || strings.HasSuffix(field, "modelversion") || strings.HasSuffix(field, "effort") {
 			delete(h, key)
 			continue
 		}
-		// Preserve the gateway's existing header policy. In particular, Codex
-		// turn-state, quota windows and unrelated allowed headers remain intact.
+		// Continuation blobs and quotas are opaque protocol values, not error text.
+		if strings.HasPrefix(strings.ToLower(key), "x-codex-") {
+			continue
+		}
+		for i, v := range values {
+			values[i] = p.Text(v)
+		}
 	}
 }
 
@@ -476,37 +424,69 @@ func (p *Policy) SSE(event []byte) []byte {
 	if !p.Enabled() || p.IsAdmin() {
 		return event
 	}
+	// Keep every non-data field (including id/retry/comments/custom events) and
+	// its original line ending. Only reconstruct data when its payload changes.
+	type line struct{ text, ending string }
+	var lines []line
 	var data []string
-	var eventType string
-	lines := strings.ReplaceAll(strings.ReplaceAll(string(event), "\r\n", "\n"), "\r", "\n")
-	for _, line := range strings.Split(lines, "\n") {
-		if strings.HasPrefix(line, "data:") {
-			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+	eventType := ""
+	for rest := string(event); rest != ""; {
+		i := strings.IndexAny(rest, "\r\n")
+		if i < 0 {
+			lines = append(lines, line{rest, ""})
+			break
 		}
-		if strings.HasPrefix(line, "event:") {
-			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		end := i + 1
+		if rest[i] == '\r' && end < len(rest) && rest[end] == '\n' {
+			end++
 		}
+		lines = append(lines, line{rest[:i], rest[i:end]})
+		rest = rest[end:]
 	}
-	if len(data) == 0 {
-		return []byte(": ping\n\n")
+	for _, l := range lines {
+		if l.text == "data" || strings.HasPrefix(l.text, "data:") {
+			data = append(data, strings.TrimPrefix(strings.TrimPrefix(l.text, "data:"), " "))
+		}
+		if strings.HasPrefix(l.text, "event:") {
+			eventType = strings.TrimSpace(strings.TrimPrefix(l.text, "event:"))
+		}
 	}
 	payload := strings.Join(data, "\n")
-	if payload != "[DONE]" {
+	filtered := payload
+	if len(data) > 0 && payload != "[DONE]" {
 		if eventType == "error" {
-			payload = string(p.ErrorJSON([]byte(payload)))
+			filtered = string(p.ErrorJSON([]byte(payload)))
+		} else if json.Valid([]byte(payload)) {
+			filtered = string(p.JSON([]byte(payload)))
 		} else {
-			payload = string(p.JSON([]byte(payload)))
+			filtered = p.Text(payload)
 		}
 	}
 	var out strings.Builder
-	// Do not relay arbitrary upstream comments, event IDs or custom event names.
-	if strings.HasPrefix(eventType, "response.") || strings.HasPrefix(eventType, "message_") || strings.HasPrefix(eventType, "content_block_") || strings.HasPrefix(eventType, "image_generation.") || strings.HasPrefix(eventType, "image_edit.") || eventType == "error" || eventType == "ping" {
-		_, _ = out.WriteString("event: ")
-		_, _ = out.WriteString(eventType)
-		_ = out.WriteByte('\n')
+	emitted := false
+	for _, l := range lines {
+		if l.text == "data" || strings.HasPrefix(l.text, "data:") {
+			if filtered == payload {
+				_, _ = out.WriteString(l.text)
+				_, _ = out.WriteString(l.ending)
+			} else if !emitted {
+				_, _ = out.WriteString("data: ")
+				_, _ = out.WriteString(strings.ReplaceAll(filtered, "\n", "\ndata: "))
+				_, _ = out.WriteString(l.ending)
+				emitted = true
+			}
+		} else {
+			// Preserve SSE grammar and redact values, never field names.
+			key, value, found := strings.Cut(l.text, ":")
+			if found {
+				_, _ = out.WriteString(key)
+				_ = out.WriteByte(':')
+				_, _ = out.WriteString(p.Text(value))
+			} else {
+				_, _ = out.WriteString(l.text)
+			}
+			_, _ = out.WriteString(l.ending)
+		}
 	}
-	_, _ = out.WriteString("data: ")
-	_, _ = out.WriteString(payload)
-	_, _ = out.WriteString("\n\n")
 	return []byte(out.String())
 }
