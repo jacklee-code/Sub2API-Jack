@@ -173,6 +173,39 @@ this feature.
 
 ## Account reserve energy
 
+### Official API credits exhausted
+
+Official OpenAI API-key accounts (`https://api.openai.com`, with their own configured
+proxy) reporting the structured `credit_balance_exhausted` error on HTTP 429/402,
+or an equivalent stream error, are durably held as **Credit exhausted / 額度耗盡**.
+The existing `error` status and `schedulable=false` exclude them from every later
+request, so the ordered reserve chain goes directly to the first eligible target.
+There is no five-second retry or automatic recovery after a successful test.
+Only the administrator's **Restore status / 恢復狀態** action releases this hold
+and re-enables scheduling. Recovery and its scheduler-outbox event are atomic.
+Other in-flight errors cannot replace the hold, and generic error clearing cannot
+remove it. A failed persistence write is logged; the runtime block still applies.
+
+Detection requires the exact structured code, not an echoed message or the broad
+`insufficient_quota` type (which can also mean a spending limit). Ordinary 429s,
+OAuth subscription windows and third-party compatible endpoints retain their
+existing policies. Persistent storage uses the existing error field with the stable
+`[jack_openai_credit_exhausted]` marker; no migration is needed. Older binaries
+still exclude the stored error/disabled-scheduling account, but do not implement
+the manual-only recovery rule or the dedicated label.
+
+As checked on 2026-11-01, OpenAI's public API reference documents organization
+Usage/Costs, but no remaining-credit endpoint for ordinary project API keys. The
+subscription-credit guide directs users to API Platform Billing to view grants:
+[credit benefit](https://developers.openai.com/api/docs/guides/chatgpt-api-credits),
+[error codes](https://developers.openai.com/api/docs/guides/error-codes),
+[Costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs).
+Costs are not a remaining balance. No undocumented billing call, browser-session
+credential collection or estimated balance is added. If a supported credit probe
+is added later, it must use the destination account's proxy with no direct retry.
+
+### Ordered reserve configuration
+
 OpenAI account editing includes an opt-in **Reserve energy / 後備能源** plan.
 `internal/jackreserve` owns its configuration; the gateway integration lives in
 `internal/service/jack_reserve_energy.go`, and the editor in
