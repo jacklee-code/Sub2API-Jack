@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tidwall/gjson"
 )
@@ -241,7 +242,15 @@ func ClientMediaFrame(ctx context.Context, body []byte) []byte {
 
 func CloseReason(ctx context.Context, reason string) string {
 	if p := FromContext(ctx); p.Enabled() && !p.IsAdmin() && reason != "" {
-		return p.Text(reason)
+		reason = strings.ToValidUTF8(p.Text(reason), "�")
+		if len(reason) > 120 {
+			end := 120
+			for !utf8.ValidString(reason[:end]) {
+				end--
+			}
+			reason = reason[:end]
+		}
+		return reason
 	}
 	return reason
 }
