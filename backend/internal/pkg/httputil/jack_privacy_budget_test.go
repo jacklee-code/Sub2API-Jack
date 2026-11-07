@@ -38,7 +38,9 @@ func TestJackPrivacyCapturesOriginalBodyWithMemoryBudget(t *testing.T) {
 					t.Fatal(err)
 				}
 				wireBody = writer.EncodeAll(body, nil)
-				writer.Close()
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
 			}
 			req := httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(wireBody)).WithContext(ctx)
 			if encoding == "preread" {
