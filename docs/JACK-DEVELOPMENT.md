@@ -493,6 +493,8 @@ frames, public usage fallbacks and group policies retain the earlier behavior.
   later mapped preread bodies cannot replace it. Other streaming readers use a
   bounded 1 MiB prefix fallback. Unknown values remain unknown. Each HTTP JSON
   response or SSE event has a 64 MiB fail-closed buffer limit.
+  Capture follows the upstream ingress memory-budget checks, including compressed
+  bodies, and does not add a reservation for borrowed preread buffers.
 - Original text, tool arguments, schemas and binary media stay intact. SSE events
   are processed independently, including LF, CRLF and CR boundaries; the first
   event is flushed before the complete answer is available. Socket hooks are
