@@ -34,7 +34,9 @@ git switch -c feat/your-feature
 功能分支。`origin` 是 Jack repo；`upstream` 是官方原始碼。GitHub CLI 操作若有歧義，
 明確指定 `--repo jacklee-code/Sub2API-Jack`。推送前確認登入身份為 `jacklee-code`。
 
-使用 `backend/go.mod` 指定的 Go 版本；CI 目前使用 Node 20、pnpm 9。
+使用 `backend/go.mod` 指定的 Go 版本；CI 目前使用 Node 24、pnpm 9。
+同步、驗證及發佈的 Node 版本須與上游前端依賴相容；v0.2.20 的 vue-i18n 11
+要求 Node 22 以上，因此 Jack workflows 同樣跟隨上游使用 Node 24。
 整合測試需要 Docker。使用隔離 PostgreSQL／Redis 與合成使用者資料，普通功能開發
 不需要正式站憑證或 SSH 存取，也不得把測試指向正式資料庫。
 

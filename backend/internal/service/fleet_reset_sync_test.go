@@ -12,6 +12,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/jackfleet"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -87,6 +89,28 @@ func TestFleetUsageOnlyQueryAndStableRedemptionUseMockUpstream(t *testing.T) {
 	require.Error(t, err)
 	require.Len(t, redeemIDs, 2, "an identity mismatch must never reach even the mock consume endpoint")
 
+}
+
+func TestFleetStableRedemptionPreservesScopedAdminAuthorization(t *testing.T) {
+	account := &Account{ID: 203, Platform: PlatformOpenAI, Type: AccountTypeOAuth, GroupIDs: []int64{1}}
+	quota := &OpenAIQuotaService{accountRepo: &stubQuotaAccountRepo{accounts: map[int64]*Account{account.ID: account}}}
+	for _, tc := range []struct {
+		name   string
+		action string
+		group  int64
+	}{
+		{"read permission cannot reset", "openai.quota.read", 1},
+		{"reset cannot cross group scope", "openai.quota.reset", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{Policy: adminaccess.Policy{Rules: []adminaccess.Rule{{
+				Permissions: []string{tc.action}, GroupIDs: []int64{tc.group}, AccountTypes: []string{"oauth"}, Platforms: []string{"openai"},
+			}}}})
+			result, err := quota.ResetCreditStable(ctx, account.ID, "persisted-operation", "expected-account")
+			require.Nil(t, result)
+			require.Equal(t, 404, infraerrors.Code(err), "deny before resolving credentials or consuming a credit")
+		})
+	}
 }
 
 type fleetNoNetworkQuota struct{ t *testing.T }
