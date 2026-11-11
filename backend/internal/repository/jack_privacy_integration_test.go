@@ -24,10 +24,14 @@ func TestJackPrivacyUsageProvenanceSurvivesRoundtrip(t *testing.T) {
 	r := newUsageLogRepositoryWithSQL(client, tx)
 	requested, actual, mapped := "xhigh", "low", "private-model"
 	entry := &service.UsageLog{UserID: u.ID, APIKeyID: k.ID, AccountID: a.ID, RequestID: "jack-privacy-roundtrip", Model: mapped, RequestedModel: "public-model", RequestedReasoningEffort: &requested, ReasoningEffort: &actual, UpstreamModel: &mapped}
+	entry.CacheCreation30mTokens = 17
+	entry.CacheCreation12hTokens = 29
 	_, err := r.Create(ctx, entry)
 	require.NoError(t, err)
 	read, err := r.GetByID(ctx, entry.ID)
 	require.NoError(t, err)
+	require.Equal(t, 17, read.CacheCreation30mTokens)
+	require.Equal(t, 29, read.CacheCreation12hTokens)
 	require.False(t, read.LegacyRequestMetadata)
 	require.Equal(t, "public-model", dto.UsageLogFromService(read).Model)
 	// Simulate an old row/old writer: its database default is deliberately false.
