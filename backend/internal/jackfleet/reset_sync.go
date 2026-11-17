@@ -186,7 +186,7 @@ func (s *Store) Observe(ctx context.Context, account int64, o Observation) error
 			// Headers alone may be stale even after a successful consume. Keep the
 			// barrier until an authenticated query shows the recovery. A high query
 			// from an eventually consistent upstream must not re-arm drop detection.
-			recovered := v.Baseline == nil || !sameIdentity(*v.Baseline, o) || (v.Baseline.Used < 5 && o.Used < 5) || o.Used <= 1 || o.ResetAt.After(v.Baseline.ResetAt.Add(time.Minute))
+			recovered := v.Baseline == nil || !sameIdentity(*v.Baseline, o) || o.Used < 5 || o.ResetAt.After(v.Baseline.ResetAt.Add(time.Minute))
 			if o.Source != "query" || !recovered {
 				if o.Source != "query" && recovered {
 					if e = queueResetJob(ctx, tx, account, now); e != nil {

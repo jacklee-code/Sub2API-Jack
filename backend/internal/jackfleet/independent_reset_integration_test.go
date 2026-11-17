@@ -155,6 +155,9 @@ func TestIndependentResetPreservesFleetThroughQuotaRecovery(t *testing.T) {
 		now = now.Add(time.Second)
 		low := base
 		low.At, low.Used, low.Source = now, 0, source
+		if source == "query" {
+			low.Used = 2
+		} // new traffic while recovery is queried
 		require.NoError(t, store.Observe(ctx, account, low))
 		checkUsage(50)
 	}

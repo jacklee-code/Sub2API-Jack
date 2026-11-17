@@ -187,10 +187,9 @@ A successful independent redemption preserves all fleet usage and cancels pendin
 reset candidates under the fleet transaction lock. A durable observation barrier
 covers every enabled fleet following the account, including configurations created
 while redemption was in flight. Old/in-flight observations and request headers
-cannot remove it. A fresh authenticated query rebaselines once it shows low weekly
-usage, an advanced weekly deadline, or a changed identity/plan; if the previous
-baseline was already below the detection threshold, a query still below that
-threshold suffices.
+cannot remove it. A fresh authenticated query rebaselines once it shows weekly
+usage below the 5% detection threshold (allowing small new usage after the reset),
+an advanced weekly deadline, or a changed identity/plan.
 Initially stale high queries and failed queries leave the barrier in place. Until
 recovery is observed, quota is preserved even across a weekly deadline; after
 rebaselining, later genuine resets synchronize normally. This is event-driven and
