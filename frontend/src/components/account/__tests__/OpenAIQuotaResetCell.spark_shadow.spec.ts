@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import OpenAIQuotaResetCell from '../OpenAIQuotaResetCell.vue'
+import IndependentResetOption from '@/jack/accounts/IndependentResetOption.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import type { Account } from '@/types'
 import { refreshOpenAIQuota, resetOpenAIQuota, type OpenAIQuotaRefreshResult } from '@/api/admin/accounts'
@@ -476,6 +477,50 @@ describe('OpenAIQuotaResetCell 自动用卡运行态', () => {
 })
 
 describe('Fleet reset credit synchronization', () => {
+  it('keeps the independent choice through a lost response and locks its retry', async () => {
+    vi.mocked(resetOpenAIQuota)
+      .mockRejectedValueOnce(new Error('Lost response'))
+      .mockResolvedValueOnce({ code: 'reset', windows_reset: 1, cache_refreshed: false, account_state_recovered: true, fleet_sync_status: 'independent' })
+    let wrapper = mount(OpenAIQuotaResetCell, { props: { account: account() } })
+    await resetButton(wrapper).trigger('click')
+    await wrapper.findComponent(IndependentResetOption).get('[data-testid="independent-reset"]').setValue(true)
+    expect(wrapper.findComponent(ConfirmDialog).props('confirmText')).toBe('fleet.independentReset')
+    wrapper.findComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    const key = vi.mocked(resetOpenAIQuota).mock.calls[0][1]
+    expect(resetOpenAIQuota).toHaveBeenCalledWith(1, key, true)
+    expect(sessionStorage.getItem('jack-credit-mode:1')).toBe('independent')
+    wrapper.unmount()
+    wrapper = mount(OpenAIQuotaResetCell, { props: { account: account() } })
+    await resetButton(wrapper).trigger('click')
+    const choice = wrapper.findComponent(IndependentResetOption).get('[data-testid="independent-reset"]')
+    expect((choice.element as HTMLInputElement).checked).toBe(true)
+    expect(choice.attributes('disabled')).toBeDefined()
+    wrapper.findComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(resetOpenAIQuota).toHaveBeenNthCalledWith(2, 1, key, true)
+    expect(wrapper.text()).toContain('fleet.creditIndependent')
+    expect(sessionStorage.getItem('jack-credit-operation:1')).toBeNull()
+    expect(sessionStorage.getItem('jack-credit-mode:1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('clears the independent choice after a definitive flattened rejection', async () => {
+    vi.mocked(resetOpenAIQuota).mockRejectedValueOnce({ reason: 'FLEET_CREDIT_REJECTED', message: 'Rejected' })
+    const wrapper = mount(OpenAIQuotaResetCell, { props: { account: account() } })
+    await resetButton(wrapper).trigger('click')
+    await wrapper.findComponent(IndependentResetOption).get('[data-testid="independent-reset"]').setValue(true)
+    wrapper.findComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(sessionStorage.getItem('jack-credit-operation:1')).toBeNull()
+    expect(sessionStorage.getItem('jack-credit-mode:1')).toBeNull()
+    await resetButton(wrapper).trigger('click')
+    const choice = wrapper.findComponent(IndependentResetOption).get('[data-testid="independent-reset"]')
+    expect((choice.element as HTMLInputElement).checked).toBe(false)
+    expect(choice.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   const account = () => makeAccount({ parent_account_id: null, extra: { codex_reset_credit_snapshot: { available_count: 1, credits: [{ expires_at: FUTURE_EXPIRY_EARLY }] } } })
   it('retains the same redemption operation across a lost response and component remount', async () => {
     vi.mocked(resetOpenAIQuota).mockRejectedValueOnce(new Error('Lost response')).mockResolvedValueOnce({ code: 'ok', windows_reset: 1, cache_refreshed: false, account_state_recovered: true, fleet_sync_status: 'synced', fleet_sync_count: 1 })

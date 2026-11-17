@@ -1,5 +1,10 @@
 export default {
   fleet: {
+    independentReset: "獨立 reset",
+    independentResetHint: "只重置此 OpenAI 帳號，保留車隊成員用量。本次額度回升不會觸發車隊重置；之後的正常重置仍會同步。",
+    creditRetryModeLocked: "上次用券結果尚待確認，重試會沿用相同操作及重置模式。",
+    creditIndependent: "帳號已獨立重置，車隊用量已保留。",
+
     syncSettings: "跟隨 ChatGPT 重置",
     syncHint: "跟隨指定帳號的七日重置及成功的手動用券，清零目前成員的日／週／月用量。",
     syncEnabled: "啟用自動同步",

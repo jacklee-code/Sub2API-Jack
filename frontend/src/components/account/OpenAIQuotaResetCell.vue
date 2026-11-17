@@ -172,12 +172,14 @@
       :show="showResetConfirm"
       :title="t('admin.accounts.openaiQuotaReset.confirmTitle')"
       :message="t('admin.accounts.openaiQuotaReset.confirmMessage', { count: availableResetCount })"
-      :confirm-text="t('admin.accounts.openaiQuotaReset.reset')"
+      :confirm-text="independentReset ? t('fleet.independentReset') : t('admin.accounts.openaiQuotaReset.reset')"
       :cancel-text="t('common.cancel')"
       danger
       @confirm="confirmReset"
       @cancel="showResetConfirm = false"
-    />
+    >
+      <IndependentResetOption v-model="independentReset" :locked="resetModeLocked" />
+    </ConfirmDialog>
   </div>
 </template>
 
@@ -191,6 +193,7 @@ import {
   type OpenAIQuotaUsage,
   type OpenAIQuotaResetResult
 } from '@/api/admin/accounts'
+import IndependentResetOption from '@/jack/accounts/IndependentResetOption.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import OpenAIReferralCell from '@/components/account/OpenAIReferralCell.vue'
 
@@ -216,6 +219,8 @@ const resetMessage = ref<string | null>(null)
 const resetWarning = ref<string | null>(null)
 const fleetSyncMessage = ref<string | null>(null)
 const showResetConfirm = ref(false)
+const independentReset = ref(false)
+const resetModeLocked = ref(false)
 const showResetCreditDetails = ref(false)
 const creditsCacheWarning = ref(false)
 
@@ -442,7 +447,7 @@ const handleQuery = async () => {
   error.value = null
   resetMessage.value = null
   resetWarning.value = null
-    fleetSyncMessage.value = null
+  fleetSyncMessage.value = null
   showResetCreditDetails.value = false
   try {
     const result = await refreshOpenAIQuota(accountID)
@@ -472,6 +477,8 @@ const openResetConfirm = () => {
     error.value = t('admin.accounts.openaiQuotaReset.noCreditsAvailable')
     return
   }
+  resetModeLocked.value = !!sessionStorage.getItem(`jack-credit-operation:${props.account.id}`)
+  independentReset.value = resetModeLocked.value && sessionStorage.getItem(`jack-credit-mode:${props.account.id}`) === 'independent'
   showResetConfirm.value = true
 }
 
@@ -488,16 +495,29 @@ const confirmReset = async () => {
   error.value = null
   resetMessage.value = null
   resetWarning.value = null
-    fleetSyncMessage.value = null
+  fleetSyncMessage.value = null
   try {
     const storageKey = `jack-credit-operation:${accountID}`
     let operationKey = sessionStorage.getItem(storageKey)
-    if (!operationKey) { operationKey = crypto.randomUUID(); sessionStorage.setItem(storageKey, operationKey) }
-    const result: OpenAIQuotaResetResult = await resetOpenAIQuota(accountID, operationKey)
-    if (result.fleet_sync_status !== 'pending') sessionStorage.removeItem(storageKey)
+    const modeKey = `jack-credit-mode:${accountID}`
+    if (!operationKey) {
+      operationKey = crypto.randomUUID()
+      sessionStorage.setItem(storageKey, operationKey)
+      sessionStorage.setItem(modeKey, independentReset.value ? 'independent' : 'follow')
+    }
+    // The saved choice owns retries, including remounts and lost responses.
+    const independent = sessionStorage.getItem(modeKey) === 'independent'
+    const result: OpenAIQuotaResetResult = independent
+      ? await resetOpenAIQuota(accountID, operationKey, true)
+      : await resetOpenAIQuota(accountID, operationKey)
+    if (result.fleet_sync_status !== 'pending') {
+      sessionStorage.removeItem(storageKey)
+      sessionStorage.removeItem(modeKey)
+    }
+    if (props.account.id !== accountID) return
+    if (result.fleet_sync_status === 'independent') fleetSyncMessage.value = t('fleet.creditIndependent')
     if (result.fleet_sync_status === 'pending') fleetSyncMessage.value = t('fleet.creditPending')
     if (result.fleet_sync_status === 'synced') fleetSyncMessage.value = t('fleet.creditSynced', { count: result.fleet_sync_count || 0 })
-    if (props.account.id !== accountID) return
     updateCredits(result.quota ?? null)
     showResetCreditDetails.value = false
     if (result.cache_refreshed && result.quota) {
@@ -523,7 +543,11 @@ const confirmReset = async () => {
       })
     }
   } catch (e) {
-    if ((e as { response?: { data?: { reason?: string } } }).response?.data?.reason === 'FLEET_CREDIT_REJECTED') sessionStorage.removeItem(`jack-credit-operation:${accountID}`)
+    const failure = e as { reason?: string; response?: { data?: { reason?: string } } }
+    if ((failure.reason ?? failure.response?.data?.reason) === 'FLEET_CREDIT_REJECTED') {
+      sessionStorage.removeItem(`jack-credit-operation:${accountID}`)
+      sessionStorage.removeItem(`jack-credit-mode:${accountID}`)
+    }
     if (props.account.id !== accountID) return
     error.value = extractErrorMessage(e)
   } finally {

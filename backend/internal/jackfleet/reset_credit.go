@@ -13,17 +13,27 @@ import (
 )
 
 type CreditOperation struct {
-	Identity  string
-	ID        int64
-	AccountID int64
-	RedeemID  string
-	State     string
-	Result    []byte
+	IndependentReset bool
+	Identity         string
+	ID               int64
+	AccountID        int64
+	RedeemID         string
+	State            string
+	Result           []byte
 }
 
 // BeginCredit durably fixes one upstream redemption id BEFORE spending a credit.
 // Retries of a timed-out operation must use that same id, including after restart.
 func (s *Store) BeginCredit(ctx context.Context, actor, account int64, key string, identity ...string) (*CreditOperation, error) {
+	return s.beginCredit(ctx, actor, account, key, false, identity...)
+}
+
+// BeginIndependentCredit fixes the no-fleet-reset choice with the redemption id.
+func (s *Store) BeginIndependentCredit(ctx context.Context, actor, account int64, key, identity string) (*CreditOperation, error) {
+	return s.beginCredit(ctx, actor, account, key, true, identity)
+}
+
+func (s *Store) beginCredit(ctx context.Context, actor, account int64, key string, independent bool, identity ...string) (*CreditOperation, error) {
 	if actor <= 0 || len(key) < 8 || len(key) > 128 {
 		return nil, bad("An Idempotency-Key (8-128 characters) is required")
 	}
@@ -33,13 +43,16 @@ func (s *Store) BeginCredit(ctx context.Context, actor, account int64, key strin
 	}
 	defer func() { _ = tx.Rollback() }()
 	now := s.Now()
-	op := &CreditOperation{AccountID: account}
+	op := &CreditOperation{AccountID: account, IndependentReset: independent}
 	if len(identity) > 0 {
 		op.Identity = identity[0]
 	}
 	var lease *time.Time
-	err = tx.QueryRowContext(ctx, `SELECT id,redeem_id,state,result,lease_until,account_identity FROM jack_fleet_credit_operations WHERE actor_id=$1 AND account_id=$2 AND operation_key=$3`, actor, account, key).Scan(&op.ID, &op.RedeemID, &op.State, &op.Result, &lease, &op.Identity)
+	err = tx.QueryRowContext(ctx, `SELECT id,redeem_id,state,result,lease_until,account_identity,independent_reset FROM jack_fleet_credit_operations WHERE actor_id=$1 AND account_id=$2 AND operation_key=$3`, actor, account, key).Scan(&op.ID, &op.RedeemID, &op.State, &op.Result, &lease, &op.Identity, &op.IndependentReset)
 	if err == nil {
+		if op.IndependentReset != independent {
+			return nil, conflict("Idempotency key was already used with a different reset mode")
+		}
 		if op.State != "pending" {
 			return op, nil
 		}
@@ -74,7 +87,7 @@ func (s *Store) BeginCredit(ctx context.Context, actor, account int64, key strin
 		}
 		op.RedeemID = uuid.NewString()
 		op.State = "pending"
-		if err = tx.QueryRowContext(ctx, `INSERT INTO jack_fleet_credit_operations(actor_id,account_id,operation_key,redeem_id,targets,account_identity) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`, actor, account, key, op.RedeemID, jsonValue(targets), op.Identity).Scan(&op.ID); err != nil {
+		if err = tx.QueryRowContext(ctx, `INSERT INTO jack_fleet_credit_operations(actor_id,account_id,operation_key,redeem_id,targets,account_identity,independent_reset) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, actor, account, key, op.RedeemID, jsonValue(targets), op.Identity, independent).Scan(&op.ID); err != nil {
 			return nil, err
 		}
 	} else {
@@ -91,7 +104,7 @@ func (s *Store) BeginCredit(ctx context.Context, actor, account int64, key strin
 func (s *Store) ClaimCredit(ctx context.Context) (*CreditOperation, error) {
 	now := s.Now()
 	var op CreditOperation
-	err := s.DB.QueryRowContext(ctx, `UPDATE jack_fleet_credit_operations SET lease_until=$1::timestamptz+interval '30 seconds' WHERE id=(SELECT id FROM jack_fleet_credit_operations WHERE state='pending' AND next_attempt_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id,account_id,redeem_id,state,account_identity`, now).Scan(&op.ID, &op.AccountID, &op.RedeemID, &op.State, &op.Identity)
+	err := s.DB.QueryRowContext(ctx, `UPDATE jack_fleet_credit_operations SET lease_until=$1::timestamptz+interval '30 seconds' WHERE id=(SELECT id FROM jack_fleet_credit_operations WHERE state='pending' AND next_attempt_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id,account_id,redeem_id,state,account_identity,independent_reset`, now).Scan(&op.ID, &op.AccountID, &op.RedeemID, &op.State, &op.Identity, &op.IndependentReset)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -122,7 +135,8 @@ func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code st
 	defer func() { _ = tx.Rollback() }()
 	var state string
 	var targetsJSON []byte
-	if err = tx.QueryRowContext(ctx, `SELECT state,targets FROM jack_fleet_credit_operations WHERE id=$1 FOR UPDATE`, op.ID).Scan(&state, &targetsJSON); err != nil {
+	var independent bool
+	if err = tx.QueryRowContext(ctx, `SELECT state,targets,independent_reset FROM jack_fleet_credit_operations WHERE id=$1 FOR UPDATE`, op.ID).Scan(&state, &targetsJSON, &independent); err != nil {
 		return err
 	}
 	if state != "pending" {
@@ -143,7 +157,17 @@ func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code st
 		if err = json.Unmarshal(targetsJSON, &targets); err != nil {
 			return err
 		}
+		if independent {
+			// Include fleets enabled/reconfigured while redemption was in flight. Their
+			// baseline may still predate upstream recovery, so they need the barrier too.
+			if _, err = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync r SET candidate=NULL,rebaseline=false,independent_reset_pending=true,configured_at=$2,status='watching',error_code='' FROM jack_fleets f WHERE r.fleet_id=f.id AND r.account_id=$1 AND r.enabled AND f.archived_at IS NULL`, op.AccountID, now); err != nil {
+				return err
+			}
+		}
 		for id, generation := range targets {
+			if independent {
+				continue
+			}
 			v, e := scanSync(tx.QueryRowContext(ctx, `SELECT `+syncColumns+` FROM jack_fleet_reset_sync WHERE fleet_id=$1`, id))
 			if errors.Is(e, sql.ErrNoRows) {
 				continue
@@ -165,7 +189,7 @@ func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code st
 			if e = s.resetEvent(ctx, tx, id, op.AccountID, key, "manual_credit", v.Baseline, nil, now); e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET candidate=NULL,rebaseline=true,configured_at=$2,status='synced',error_code='' WHERE fleet_id=$1`, id, now); e != nil {
+			if _, e = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET candidate=NULL,rebaseline=true,independent_reset_pending=false,configured_at=$2,status='synced',error_code='' WHERE fleet_id=$1`, id, now); e != nil {
 				return e
 			}
 		}
@@ -180,6 +204,13 @@ func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code st
 	return tx.Commit()
 }
 func (s *Store) CreditSyncStatus(ctx context.Context, id int64) (string, int, error) {
+	var independent bool
+	if err := s.DB.QueryRowContext(ctx, `SELECT independent_reset FROM jack_fleet_credit_operations WHERE id=$1`, id).Scan(&independent); err != nil {
+		return "", 0, err
+	}
+	if independent {
+		return "independent", 0, nil
+	}
 	var count, pending int
 	err := s.DB.QueryRowContext(ctx, `SELECT count(*),count(*) FILTER(WHERE o.cache_pending) FROM jack_fleet_reset_events e JOIN jack_fleet_operations o ON o.actor_id=0 AND o.operation_key=e.operation_key WHERE e.operation_key LIKE $1`, fmt.Sprintf("fleet-credit:%d:%%", id)).Scan(&count, &pending)
 	status := "not_enabled"

@@ -1,5 +1,10 @@
 export default {
   fleet: {
+    independentReset: "Independent reset",
+    independentResetHint: "Reset only this OpenAI account and keep fleet member usage. This quota recovery will not reset fleets; later resets will still synchronize.",
+    creditRetryModeLocked: "The previous redemption is unresolved. Retrying keeps its operation and reset mode.",
+    creditIndependent: "Account reset independently; fleet usage preserved.",
+
     syncSettings: "Follow ChatGPT resets",
     syncHint: "Follow the selected account’s 7d resets and successful manual reset credits. Clears all current members’ daily, weekly and monthly usage.",
     syncEnabled: "Enable automatic synchronization",

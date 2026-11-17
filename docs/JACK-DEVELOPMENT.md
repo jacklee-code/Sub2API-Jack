@@ -175,6 +175,33 @@ cannot discard a successful redemption. The panel distinguishes credit usage
 from pending fleet cache synchronization. No automatic-credit configuration is
 changed by this feature.
 
+The account reset confirmation also offers **Independent reset**. This is a
+per-redemption choice (`POST .../reset-quota` with `independent_reset: true`),
+not a change to the fleet's follow setting or the account's automatic-credit
+setting. The default remains normal fleet synchronization. The same idempotency
+key cannot switch modes; the panel persists and locks the selected mode while
+retrying an unresolved redemption. Without the fleet service, an independent
+request fails before consuming a credit instead of falling back to a normal reset.
+
+A successful independent redemption preserves all fleet usage and cancels pending
+reset candidates under the fleet transaction lock. A durable observation barrier
+covers every enabled fleet following the account, including configurations created
+while redemption was in flight. Old/in-flight observations and request headers
+cannot remove it. A fresh authenticated query rebaselines once it shows low weekly
+usage, an advanced weekly deadline, or a changed identity/plan; if the previous
+baseline was already below the detection threshold, a query still below that
+threshold suffices.
+Initially stale high queries and failed queries leave the barrier in place. Until
+recovery is observed, quota is preserved even across a weekly deadline; after
+rebaselining, later genuine resets synchronize normally. This is event-driven and
+uses the existing one-shot check/cooldown, without polling idle accounts. Failed
+or no-op redemptions do not install a new barrier.
+
+Migration `008_independent_account_reset.sql` is additive. Before rolling back to
+a binary without independent-reset support, resolve pending independent credit
+operations and observation barriers (or disable the affected fleet synchronization).
+An older binary ignores the mode/barrier and can reset fleets during recovery.
+
 Jack tables store source configuration, observations, jobs, redemption operations
 and reset events. Detection, manual fleet resets, transfers and redemption results
 serialize with the existing fleet transaction lock. A manual reset cancels older

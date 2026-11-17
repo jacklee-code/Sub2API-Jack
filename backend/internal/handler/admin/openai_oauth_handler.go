@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -621,11 +623,18 @@ func (h *OpenAIOAuthHandler) ResetQuota(c *gin.Context) {
 	if adminaccess.RestrictedFromContext(c.Request.Context()) != nil {
 		c.Request = c.Request.WithContext(service.WithScopedAdminAccountOperation(c.Request.Context(), "openai.quota.reset"))
 	}
+	var input struct {
+		IndependentReset bool `json:"independent_reset"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil && !errors.Is(err, io.EOF) {
+		response.BadRequest(c, "Invalid reset options")
+		return
+	}
 	key := c.GetHeader("Idempotency-Key")
 	if key == "" {
 		key = uuid.NewString()
 	}
-	result, handled, err := service.TryFleetManualCredit(c.Request.Context(), getAdminIDFromContext(c), accountID, key)
+	result, handled, err := service.TryFleetManualCredit(c.Request.Context(), getAdminIDFromContext(c), accountID, key, input.IndependentReset)
 	if !handled {
 		result, err = h.quotaService.ResetCredit(c.Request.Context(), accountID)
 	}

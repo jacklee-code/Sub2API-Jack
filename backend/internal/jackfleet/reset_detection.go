@@ -58,17 +58,18 @@ func confirmsReset(c ResetCandidate, o Observation) bool {
 }
 
 type ResetSync struct {
-	Enabled      bool            `json:"enabled"`
-	AccountID    int64           `json:"account_id"`
-	Generation   int64           `json:"generation"`
-	ConfiguredAt time.Time       `json:"configured_at"`
-	Baseline     *Observation    `json:"-"`
-	Candidate    *ResetCandidate `json:"-"`
-	NextResetAt  *time.Time      `json:"next_reset_at"`
-	ObservedAt   *time.Time      `json:"observed_at"`
-	Status       string          `json:"status"`
-	ErrorCode    string          `json:"error_code,omitempty"`
-	Rebaseline   bool            `json:"-"`
+	Enabled                 bool            `json:"enabled"`
+	AccountID               int64           `json:"account_id"`
+	Generation              int64           `json:"generation"`
+	ConfiguredAt            time.Time       `json:"configured_at"`
+	Baseline                *Observation    `json:"-"`
+	Candidate               *ResetCandidate `json:"-"`
+	NextResetAt             *time.Time      `json:"next_reset_at"`
+	ObservedAt              *time.Time      `json:"observed_at"`
+	Status                  string          `json:"status"`
+	ErrorCode               string          `json:"error_code,omitempty"`
+	IndependentResetPending bool            `json:"-"`
+	Rebaseline              bool            `json:"-"`
 }
 type ResetEvent struct {
 	ID           int64        `json:"id"`

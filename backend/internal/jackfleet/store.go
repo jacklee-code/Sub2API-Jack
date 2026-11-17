@@ -497,7 +497,7 @@ func (s *Store) reset(ctx context.Context, tx *sql.Tx, id int64, in Input, out *
 		return bad("Select at least one quota window")
 	}
 	if in.Weekly && !in.upstreamReset {
-		if _, err := tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET candidate=NULL,rebaseline=true,configured_at=$2,status='watching' WHERE fleet_id=$1 AND enabled`, id, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET candidate=NULL,rebaseline=true,independent_reset_pending=false,configured_at=$2,status='watching' WHERE fleet_id=$1 AND enabled`, id, now); err != nil {
 			return err
 		}
 	}
