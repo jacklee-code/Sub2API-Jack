@@ -149,12 +149,15 @@ func TestIndependentResetPreservesFleetThroughQuotaRecovery(t *testing.T) {
 	now = now.Add(time.Second)
 	high.At = now
 	high.Source = "query"
+	high.Plan = "plus"
+	high.ResetAt = base.ResetAt.Add(7 * 24 * time.Hour)
 	require.NoError(t, store.Observe(ctx, account, high))
 	// Even an initially stale high usage query must not remove the barrier.
 	for _, source := range []string{"request", "query", "query"} {
 		now = now.Add(time.Second)
 		low := base
 		low.At, low.Used, low.Source = now, 0, source
+		low.Plan, low.ResetAt = high.Plan, high.ResetAt
 		if source == "query" {
 			low.Used = 2
 		} // new traffic while recovery is queried
@@ -164,6 +167,7 @@ func TestIndependentResetPreservesFleetThroughQuotaRecovery(t *testing.T) {
 	events, err := store.ResetEvents(ctx, created.FleetID, 0, 10)
 	require.NoError(t, err)
 	require.Empty(t, events, "quota recovery must not be detected as a fleet reset")
+	high.Plan, high.ResetAt = base.Plan, base.ResetAt
 	// A subsequent real reset must still work within the same seven-day window.
 	now = now.Add(time.Second)
 	high.At, high.Source = now, "query"
