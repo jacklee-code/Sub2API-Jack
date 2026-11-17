@@ -202,15 +202,16 @@ Fleets that have never used independent reset keep their existing upstream-follo
 behavior. The admin panel displays the current cycle mode and the member deadline.
 
 A successful **normal** account credit reset, or a confirmed **early** upstream
-reset, clears the independent cadence and resumes following the account. A failed
-or zero-window redemption cannot change mode. Local manual fleet quota resets
+reset, clears the independent cadence and resumes following the account. This
+includes an official extra reset granted to the reference account; it does not
+require a worldwide event or matching resets on other accounts. A failed
+or zero-window credit redemption cannot change mode. Local manual fleet quota resets
 keep the cadence; explicitly disabling synchronization or selecting a new source
 reconfigures the policy as before. The early-reset signal is the existing quota
-drop plus a separate authenticated query. It can observe a surprise upstream
-reset, but cannot prove that its cause was a worldwide giveaway: automatic credit
+drop plus a separate authenticated query, evaluated per reference account.
+Usage observations confirm the extra reset, not its cause: automatic credit
 redemption or redemption in another client can present the same signal. The
-upstream usage response provides no global-event marker; this implementation
-does not claim reliable global-only attribution.
+known independent redemption is excluded by the observation guard below.
 
 A durable observation guard prevents the independent credit from being detected
 again. Old/in-flight samples and headers alone cannot establish the post-credit
