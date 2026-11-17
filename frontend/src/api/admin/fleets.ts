@@ -9,7 +9,7 @@ export interface FleetMember {
 export interface FleetResetSync {
   enabled: boolean; account_id: number; generation: number; configured_at: string
   next_reset_at: string | null; observed_at: string | null
-  status: string; error_code?: string
+  status: string; error_code?: string; independent_cycle?: boolean
 }
 export interface FleetResetEvent {
   id: number; account_id: number; source: string; members: number; created_at: string; cache_pending: boolean

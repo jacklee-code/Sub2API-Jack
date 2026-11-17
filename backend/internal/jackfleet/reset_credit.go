@@ -160,7 +160,7 @@ func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code st
 		if independent {
 			// Include fleets enabled/reconfigured while redemption was in flight. Their
 			// baseline may still predate upstream recovery, so they need the barrier too.
-			if _, err = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync r SET candidate=NULL,rebaseline=false,independent_reset_pending=true,configured_at=$2,status='watching',error_code='' FROM jack_fleets f WHERE r.fleet_id=f.id AND r.account_id=$1 AND r.enabled AND f.archived_at IS NULL`, op.AccountID, now); err != nil {
+			if _, err = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync r SET candidate=NULL,rebaseline=false,independent_reset_pending=true,independent_reset_due_at=COALESCE(r.independent_reset_due_at,r.next_reset_at),independent_reset_window=NULL,configured_at=$2,status='watching',error_code='' FROM jack_fleets f WHERE r.fleet_id=f.id AND r.account_id=$1 AND r.enabled AND f.archived_at IS NULL`, op.AccountID, now); err != nil {
 				return err
 			}
 		}
@@ -189,7 +189,7 @@ func (s *Store) CompleteCredit(ctx context.Context, op *CreditOperation, code st
 			if e = s.resetEvent(ctx, tx, id, op.AccountID, key, "manual_credit", v.Baseline, nil, now); e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET candidate=NULL,rebaseline=true,independent_reset_pending=false,configured_at=$2,status='synced',error_code='' WHERE fleet_id=$1`, id, now); e != nil {
+			if _, e = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET candidate=NULL,rebaseline=true,independent_reset_pending=false,independent_reset_due_at=NULL,independent_reset_window=NULL,configured_at=$2,status='synced',error_code='' WHERE fleet_id=$1`, id, now); e != nil {
 				return e
 			}
 		}

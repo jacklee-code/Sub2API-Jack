@@ -28,17 +28,18 @@ func (s *Store) locked(ctx context.Context) (*sql.Tx, error) {
 }
 func jsonValue(v any) string { b, _ := json.Marshal(v); return string(b) }
 
-const syncColumns = `enabled,account_id,generation,configured_at,baseline,candidate,next_reset_at,observed_at,status,error_code,rebaseline,independent_reset_pending`
+const syncColumns = `enabled,account_id,generation,configured_at,baseline,candidate,next_reset_at,observed_at,status,error_code,rebaseline,independent_reset_pending,independent_reset_due_at,independent_reset_window`
 
 type rowScanner interface{ Scan(...any) error }
 
 func scanSync(row rowScanner) (*ResetSync, error) {
 	var v ResetSync
-	var baseline, candidate []byte
-	err := row.Scan(&v.Enabled, &v.AccountID, &v.Generation, &v.ConfiguredAt, &baseline, &candidate, &v.NextResetAt, &v.ObservedAt, &v.Status, &v.ErrorCode, &v.Rebaseline, &v.IndependentResetPending)
+	var baseline, candidate, independentWindow []byte
+	err := row.Scan(&v.Enabled, &v.AccountID, &v.Generation, &v.ConfiguredAt, &baseline, &candidate, &v.NextResetAt, &v.ObservedAt, &v.Status, &v.ErrorCode, &v.Rebaseline, &v.IndependentResetPending, &v.IndependentResetDueAt, &independentWindow)
 	if err != nil {
 		return nil, err
 	}
+	v.IndependentCycle = v.IndependentResetDueAt != nil
 	if len(baseline) > 0 {
 		if err = json.Unmarshal(baseline, &v.Baseline); err != nil {
 			return nil, err
@@ -46,6 +47,11 @@ func scanSync(row rowScanner) (*ResetSync, error) {
 	}
 	if len(candidate) > 0 {
 		if err = json.Unmarshal(candidate, &v.Candidate); err != nil {
+			return nil, err
+		}
+	}
+	if len(independentWindow) > 0 {
+		if err = json.Unmarshal(independentWindow, &v.IndependentResetWindow); err != nil {
 			return nil, err
 		}
 	}
@@ -69,7 +75,7 @@ func (s *Store) configureResetSync(ctx context.Context, tx *sql.Tx, f Fleet, in 
 		if !enabled {
 			return nil
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET enabled=false,generation=generation+1,candidate=NULL,status='disabled',configured_at=$2,independent_reset_pending=false WHERE fleet_id=$1`, f.ID, now); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET enabled=false,generation=generation+1,candidate=NULL,status='disabled',configured_at=$2,independent_reset_pending=false,independent_reset_due_at=NULL,independent_reset_window=NULL WHERE fleet_id=$1`, f.ID, now); err != nil {
 			return err
 		}
 		rows, e := tx.QueryContext(ctx, `UPDATE user_subscriptions s SET weekly_window_start=$2,updated_at=now() FROM jack_fleet_members m WHERE m.fleet_id=$1 AND m.subscription_id=s.id RETURNING s.user_id,s.group_id`, f.ID, now)
@@ -91,7 +97,7 @@ func (s *Store) configureResetSync(ctx context.Context, tx *sql.Tx, f Fleet, in 
 	if !eligible {
 		return bad("Choose a ChatGPT OAuth parent account bound to this fleet's group")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO jack_fleet_reset_sync(fleet_id,account_id,enabled,baseline,next_reset_at,observed_at,configured_at) VALUES($1,$2,true,$3,$4,$5,$6) ON CONFLICT(fleet_id) DO UPDATE SET account_id=EXCLUDED.account_id,enabled=true,generation=jack_fleet_reset_sync.generation+1,baseline=EXCLUDED.baseline,candidate=NULL,next_reset_at=EXCLUDED.next_reset_at,observed_at=EXCLUDED.observed_at,configured_at=EXCLUDED.configured_at,status='watching',error_code='',rebaseline=false,independent_reset_pending=false`, f.ID, in.SyncAccountID, jsonValue(in.SyncBaseline), in.SyncBaseline.ResetAt, in.SyncBaseline.At, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO jack_fleet_reset_sync(fleet_id,account_id,enabled,baseline,next_reset_at,observed_at,configured_at) VALUES($1,$2,true,$3,$4,$5,$6) ON CONFLICT(fleet_id) DO UPDATE SET account_id=EXCLUDED.account_id,enabled=true,generation=jack_fleet_reset_sync.generation+1,baseline=EXCLUDED.baseline,candidate=NULL,next_reset_at=EXCLUDED.next_reset_at,observed_at=EXCLUDED.observed_at,configured_at=EXCLUDED.configured_at,status='watching',error_code='',rebaseline=false,independent_reset_pending=false,independent_reset_due_at=NULL,independent_reset_window=NULL`, f.ID, in.SyncAccountID, jsonValue(in.SyncBaseline), in.SyncBaseline.ResetAt, in.SyncBaseline.At, now)
 	if err != nil {
 		return err
 	}
@@ -118,6 +124,13 @@ func (s *Store) resetEvent(ctx context.Context, tx *sql.Tx, id, account int64, k
 	}
 	if err := touch(ctx, tx, id); err != nil {
 		return err
+	}
+	// Only an upstream reset resumes following the account. Local weekly ticks
+	// preserve the independent subscription cadence indefinitely.
+	if source != "independent_schedule" {
+		if _, err := tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET independent_reset_due_at=NULL WHERE fleet_id=$1`, id); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO jack_fleet_reset_events(fleet_id,account_id,source,operation_key,before_snapshot,after_snapshot,members) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, account, source, key, jsonValue(before), jsonValue(after), len(out.Changed)); err != nil {
 		return err
@@ -183,23 +196,32 @@ func (s *Store) Observe(ctx context.Context, account int64, o Observation) error
 			continue
 		}
 		if v.IndependentResetPending {
-			// Headers alone may be stale even after a successful consume. Keep the
-			// barrier until an authenticated query shows the recovery. A high query
-			// from an eventually consistent upstream must not re-arm drop detection.
-			// Metadata can propagate before usage. Neither a new plan nor an
-			// advanced deadline makes a still-high percentage a safe baseline.
-			recovered := o.Used < 5 || (v.Baseline != nil && v.Baseline.Identity != o.Identity)
-			if o.Source != "query" || !recovered {
-				if o.Source != "query" && recovered {
-					if e = queueResetJob(ctx, tx, account, now); e != nil {
-						return e
+			// A query can identify the post-credit cycle even while the percentage
+			// is still stale/high. Later verified rollovers must not wait for <5%.
+			window := v.IndependentResetWindow
+			if window != nil && detectReset(*window, o) == "scheduled" {
+				v.Rebaseline = false
+				v.Baseline = window
+			} else {
+				recovered := o.Used < 5 || (v.Baseline != nil && v.Baseline.Identity != o.Identity)
+				if o.Source != "query" || !recovered {
+					if o.Source == "query" {
+						// Never let a late old deadline move the protected cycle backwards.
+						if window == nil || o.ResetAt.After(window.ResetAt) || o.ResetAt.Equal(window.ResetAt) {
+							window = &o
+						}
+						if _, e = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET independent_reset_window=$2,next_reset_at=COALESCE(independent_reset_due_at,$3),observed_at=$4,status='watching',error_code='' WHERE fleet_id=$1`, id, jsonValue(window), window.ResetAt, o.At); e != nil {
+							return e
+						}
+					} else if recovered {
+						if e = queueResetJob(ctx, tx, account, now); e != nil {
+							return e
+						}
 					}
+					continue
 				}
-				continue
+				v.Rebaseline = true
 			}
-			// Recovery can advance the weekly deadline, including at a cycle
-			// boundary. It still belongs to this independent redemption.
-			v.Rebaseline = true
 		}
 		status := "watching"
 		if v.Baseline == nil || v.Rebaseline || !sameIdentity(*v.Baseline, o) {
@@ -215,13 +237,18 @@ func (s *Store) Observe(ctx context.Context, account int64, o Observation) error
 				// reset nor make that query look out of order on arrival.
 				continue
 			} else if confirmsReset(*v.Candidate, o) {
-				key := "fleet-sync:" + uuid.NewString()
-				if e = s.resetEvent(ctx, tx, id, account, key, v.Candidate.Kind, &v.Candidate.Before, &o, now); e != nil {
-					return e
+				// Natural account rollovers only advance the detector while the
+				// subscription runs on its preserved cycle. An early reset rejoins
+				// the upstream cycle through the normal confirmed-reset path.
+				if v.IndependentResetDueAt == nil || v.Candidate.Kind != "scheduled" {
+					key := "fleet-sync:" + uuid.NewString()
+					if e = s.resetEvent(ctx, tx, id, account, key, v.Candidate.Kind, &v.Candidate.Before, &o, now); e != nil {
+						return e
+					}
+					status = "synced"
 				}
 				v.Candidate = nil
 				v.Baseline = &o
-				status = "synced"
 			} else {
 				// Retain a rejected candidate rather than querying repeatedly for
 				// every low request header. A later explicit query may confirm it,
@@ -240,7 +267,7 @@ func (s *Store) Observe(ctx context.Context, account int64, o Observation) error
 		if o.Plan == "" && v.Baseline != nil {
 			o.Plan = v.Baseline.Plan
 		}
-		if _, e = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET baseline=$2,candidate=$3,next_reset_at=$4,observed_at=$5,status=$6,error_code='',rebaseline=false,independent_reset_pending=false WHERE fleet_id=$1`, id, jsonValue(v.Baseline), jsonValue(v.Candidate), o.ResetAt, o.At, status); e != nil {
+		if _, e = tx.ExecContext(ctx, `UPDATE jack_fleet_reset_sync SET baseline=$2,candidate=$3,next_reset_at=COALESCE(independent_reset_due_at,$4),observed_at=$5,status=$6,error_code='',rebaseline=false,independent_reset_pending=false,independent_reset_window=NULL WHERE fleet_id=$1`, id, jsonValue(v.Baseline), jsonValue(v.Candidate), o.ResetAt, o.At, status); e != nil {
 			return e
 		}
 	}

@@ -68,6 +68,9 @@ type ResetSync struct {
 	ObservedAt              *time.Time      `json:"observed_at"`
 	Status                  string          `json:"status"`
 	ErrorCode               string          `json:"error_code,omitempty"`
+	IndependentCycle        bool            `json:"independent_cycle"`
+	IndependentResetDueAt   *time.Time      `json:"-"`
+	IndependentResetWindow  *Observation    `json:"-"`
 	IndependentResetPending bool            `json:"-"`
 	Rebaseline              bool            `json:"-"`
 }

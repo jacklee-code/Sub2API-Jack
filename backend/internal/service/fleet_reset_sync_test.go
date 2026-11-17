@@ -127,6 +127,7 @@ func TestFleetWorkerHasNoIdleUpstreamPolling(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
+	mock.ExpectQuery("SELECT EXISTS.*independent_reset_due_at").WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery("UPDATE jack_fleet_credit_operations").WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "redeem_id", "state"}))
 	mock.ExpectQuery("UPDATE jack_fleet_reset_jobs").WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"account_id"}))
 	s := &FleetResetSyncService{store: jackfleet.NewStore(db), quota: fleetNoNetworkQuota{t}}

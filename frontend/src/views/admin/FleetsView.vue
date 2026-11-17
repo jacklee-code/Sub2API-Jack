@@ -56,6 +56,7 @@
               <p>{{ t('fleet.syncStatus') }} · {{ syncStatus(fleet.reset_sync.status) }} · #{{ fleet.reset_sync.account_id }}</p>
               <p>{{ t('fleet.syncObserved') }} · {{ fleet.reset_sync.observed_at ? date(fleet.reset_sync.observed_at) : '—' }}</p>
               <p>{{ t('fleet.syncNext') }} · {{ fleet.reset_sync.next_reset_at ? date(fleet.reset_sync.next_reset_at) : '—' }}</p>
+              <p>{{ t(fleet.reset_sync.independent_cycle ? 'fleet.syncIndependentCycle' : 'fleet.syncUpstreamCycle') }}</p>
               <p v-if="fleet.reset_sync.error_code" class="text-amber-600">{{ t('fleet.syncUnavailable') }} · {{ fleet.reset_sync.error_code }}</p>
             </div>
             <p v-if="isExpired(fleet.expires_at)" class="mt-3 text-xs text-amber-600">{{ t('fleet.expiredHint') }}</p>
@@ -227,7 +228,7 @@ function open(action: FleetAction['action'], f?: Fleet, m?: FleetMember) {
   if (action === 'reset_sync' && f) { syncEnabled.value = !!f.reset_sync?.enabled; syncAccountId.value = f.reset_sync?.account_id || 0; syncSources.value = []; void loadSyncSources(f.id) }
 }
 function syncStatus(status: string) { return t(`fleet.${({ watching: 'syncWatching', confirming: 'syncConfirming', needs_review: 'syncReview', synced: 'syncSynced', unavailable: 'syncUnavailable', disabled: 'syncDisabled' } as Record<string, string>)[status] || 'syncReview'}`) }
-function eventSource(source: string) { return t(`fleet.${({ scheduled: 'syncScheduled', early: 'syncEarly', manual_credit: 'syncCredit' } as Record<string, string>)[source] || 'syncSource'}`) }
+function eventSource(source: string) { return t(`fleet.${({ scheduled: 'syncScheduled', early: 'syncEarly', manual_credit: 'syncCredit', independent_schedule: 'syncIndependentScheduled' } as Record<string, string>)[source] || 'syncSource'}`) }
 async function loadSyncSources(id: number) {
   const seq = ++previewSequence; previewLoading.value = true
   try { const sources = await api.resetSources(id); if (seq !== previewSequence) return; syncSources.value = sources; if (!syncAccountId.value && sources.length === 1) syncAccountId.value = sources[0].id }

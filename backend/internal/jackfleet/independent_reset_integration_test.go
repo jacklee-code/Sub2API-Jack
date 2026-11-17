@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,6 +168,9 @@ func TestIndependentResetPreservesFleetThroughQuotaRecovery(t *testing.T) {
 	events, err := store.ResetEvents(ctx, created.FleetID, 0, 10)
 	require.NoError(t, err)
 	require.Empty(t, events, "quota recovery must not be detected as a fleet reset")
+	preservedSchedule, err := store.ResetSync(ctx, created.FleetID)
+	require.NoError(t, err)
+	require.Equal(t, base.ResetAt, *preservedSchedule.NextResetAt, "independent redemption must preserve the user's next quota refresh")
 	high.Plan, high.ResetAt = base.Plan, base.ResetAt
 	// A subsequent real reset must still work within the same seven-day window.
 	now = now.Add(time.Second)
@@ -274,10 +278,17 @@ func TestIndependentResetPreservesFleetThroughQuotaRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, restarted.CompleteCredit(ctx, boundary, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
 	now = base.ResetAt.Add(time.Second)
+	didReset, err := restarted.ResetPreservedSchedules(ctx)
+	require.NoError(t, err)
+	require.True(t, didReset)
+	checkUsage(0)
+	_, err = db.ExecContext(ctx, `UPDATE user_subscriptions SET daily_usage_usd=29,weekly_usage_usd=29,monthly_usage_usd=29 WHERE id=$1`, sub)
+	require.NoError(t, err)
+	now = now.Add(time.Second)
 	low.At, low.ResetAt = now, now.Add(7*24*time.Hour)
 	require.NoError(t, restarted.Observe(ctx, account, low))
 	checkUsage(29)
-	// The following natural rollover still resets once a fresh query confirms it.
+	// Confirmed natural account rollovers must not interrupt the local cadence.
 	now = low.ResetAt.Add(time.Second)
 	low.At, low.ResetAt, low.Used, low.Source = now, now.Add(7*24*time.Hour), 10, "request"
 	require.NoError(t, restarted.Observe(ctx, account, low))
@@ -285,6 +296,10 @@ func TestIndependentResetPreservesFleetThroughQuotaRecovery(t *testing.T) {
 	now = now.Add(time.Second)
 	low.At, low.Source = now, "query"
 	require.NoError(t, restarted.Observe(ctx, account, low))
+	checkUsage(29)
+	didReset, err = restarted.ResetPreservedSchedules(ctx)
+	require.NoError(t, err)
+	require.True(t, didReset)
 	checkUsage(0)
 	var preservedSub int64
 	var preservedExpiry time.Time
@@ -294,3 +309,263 @@ func TestIndependentResetPreservesFleetThroughQuotaRecovery(t *testing.T) {
 }
 
 type independentResetAdmin struct{ service.AdminService }
+
+// Independent subscription time survives natural account rollovers and missing
+// low-usage samples. Only an explicit normal or confirmed early reset rejoins.
+func TestIndependentSchedulePersistsAcrossNaturalRollovers(t *testing.T) {
+	ctx := context.Background()
+	pg, err := tcpostgres.Run(ctx, "postgres:18-alpine", tcpostgres.WithDatabase("fleet_worker"), tcpostgres.WithUsername("postgres"), tcpostgres.WithPassword("test-only"), tcpostgres.BasicWaitStrategies())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, err := pg.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, repository.ApplyMigrations(ctx, db))
+	require.NoError(t, jackmigrations.Apply(ctx, db))
+	store := jackfleet.NewStore(db)
+	var user, group, account, sub int64
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO users(email,password_hash,role,status) VALUES('worker@example.test','test','admin','active') RETURNING id`).Scan(&user))
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO groups(name,platform,subscription_type,status) VALUES('Worker','openai','subscription','active') RETURNING id`).Scan(&group))
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO accounts(name,platform,type,credentials,status) VALUES('mock-source','openai','oauth','{"chatgpt_account_id":"test-only-account","access_token":"fake-test-token","plan_type":"pro"}','active') RETURNING id`).Scan(&account))
+	_, err = db.ExecContext(ctx, `INSERT INTO account_groups(account_id,group_id) VALUES($1,$2)`, account, group)
+	require.NoError(t, err)
+	expiry := time.Now().Add(30 * 24 * time.Hour)
+	created, err := store.Mutate(ctx, user, "create-worker", jackfleet.Input{Action: "create", Name: "Worker", GroupID: group, ExpiresAt: &expiry, Members: []jackfleet.MemberInput{{UserID: user}}})
+	require.NoError(t, err)
+	fleets, err := store.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, fleets, 1)
+	resetAt := time.Now().Add(3 * 24 * time.Hour).UTC().Truncate(time.Second)
+	base := jackfleet.Observation{Identity: jackfleet.SourceIdentity(account, "test-only-account", "", ""), Plan: "pro", Used: 80, At: time.Now(), ResetAt: resetAt, Source: "query"}
+	_, err = store.Mutate(ctx, user, "enable-worker", jackfleet.Input{Action: "reset_sync", FleetID: created.FleetID, Versions: map[int64]int64{created.FleetID: fleets[0].Version}, SyncEnabled: true, SyncAccountID: account, SyncBaseline: &base})
+	require.NoError(t, err)
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT subscription_id FROM jack_fleet_members WHERE fleet_id=$1`, created.FleetID).Scan(&sub))
+	_, err = db.ExecContext(ctx, `UPDATE user_subscriptions SET daily_usage_usd=50,weekly_usage_usd=50,monthly_usage_usd=50 WHERE id=$1`, sub)
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	store.Now = func() time.Time { return now }
+	credit, err := store.BeginIndependentCredit(ctx, user, account, "no-low-sample", base.Identity)
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, credit, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
+	// The only successful post-reset query stays high, including a changed plan
+	// and deadline. This records a cycle without granting any fleet quota.
+	now = now.Add(time.Minute)
+	post := base
+	post.At, post.Used, post.Plan, post.ResetAt = now, 40, "plus", now.Add(7*24*time.Hour)
+	require.NoError(t, store.Observe(ctx, account, post))
+	// Another independent credit may move the account's cycle again, while the
+	// original member deadline must survive both operations.
+	now = now.Add(time.Minute)
+	again, err := store.BeginIndependentCredit(ctx, user, account, "second-before-original-deadline", base.Identity)
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, again, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
+	now = now.Add(time.Minute)
+	post.At, post.ResetAt = now, post.ResetAt.Add(time.Hour)
+	require.NoError(t, store.Observe(ctx, account, post))
+	require.NoError(t, store.FinishCheck(ctx, account, "UPSTREAM_QUERY_FAILED"))
+	preserved, err := store.ResetSync(ctx, created.FleetID)
+	require.NoError(t, err)
+	require.Equal(t, base.ResetAt, *preserved.NextResetAt)
+	// Real subscription reads must show the same promised member deadline.
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	subscriptions := repository.NewUserSubscriptionRepository(client)
+	subs := service.NewSubscriptionService(nil, subscriptions, nil, client, nil)
+	subs.EnableFleetManagement()
+	t.Cleanup(subs.Stop)
+	loaded, err := subscriptions.GetByID(ctx, sub)
+	require.NoError(t, err)
+	require.Equal(t, base.ResetAt, *loaded.WeeklyResetTime())
+	now = base.ResetAt.Add(-time.Second)
+	changed, err := store.ResetPreservedSchedules(ctx)
+	require.NoError(t, err)
+	require.False(t, changed, "never refresh users before the promised date")
+	now = base.ResetAt.Add(time.Second)
+	// Two instances racing at the old deadline must reset exactly once.
+	var wg sync.WaitGroup
+	changes := make(chan bool, 2)
+	failures := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() { defer wg.Done(); done, e := store.ResetPreservedSchedules(ctx); changes <- done; failures <- e }()
+	}
+	wg.Wait()
+	close(changes)
+	close(failures)
+	resets := 0
+	for e := range failures {
+		require.NoError(t, e)
+	}
+	for done := range changes {
+		if done {
+			resets++
+		}
+	}
+	require.Equal(t, 1, resets)
+	var d, w, m float64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT daily_usage_usd,weekly_usage_usd,monthly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&d, &w, &m))
+	require.Zero(t, d)
+	require.Zero(t, w)
+	require.Zero(t, m)
+	loaded, err = subscriptions.GetByID(ctx, sub)
+	require.NoError(t, err)
+	require.Equal(t, base.ResetAt.Add(7*24*time.Hour), *loaded.WeeklyResetTime(), "the original weekday and time must survive every refresh")
+	require.WithinDuration(t, expiry, loaded.ExpiresAt, time.Millisecond)
+	_, err = db.ExecContext(ctx, `UPDATE user_subscriptions SET daily_usage_usd=19,weekly_usage_usd=19,monthly_usage_usd=19 WHERE id=$1`, sub)
+	require.NoError(t, err)
+	changed, err = store.ResetPreservedSchedules(ctx)
+	require.NoError(t, err)
+	require.False(t, changed, "replaying the timer must preserve new usage")
+	// A direct fleet quota reset does not spend an account credit or exit its
+	// independent cadence; it must also keep the pending account recovery guard.
+	fleets, err = store.List(ctx)
+	require.NoError(t, err)
+	_, err = store.Mutate(ctx, user, "local-quota-reset", jackfleet.Input{Action: "reset", FleetID: created.FleetID, Weekly: true, Versions: map[int64]int64{created.FleetID: fleets[0].Version}})
+	require.NoError(t, err)
+	localState, err := store.ResetSync(ctx, created.FleetID)
+	require.NoError(t, err)
+	require.True(t, localState.IndependentCycle)
+	require.True(t, localState.IndependentResetPending)
+	require.Equal(t, base.ResetAt.Add(7*24*time.Hour), *localState.NextResetAt)
+	_, err = db.ExecContext(ctx, `UPDATE user_subscriptions SET weekly_usage_usd=19 WHERE id=$1`, sub)
+	require.NoError(t, err)
+	// Reload from the database: cycle information must survive process restart.
+	store = jackfleet.NewStore(db)
+	store.Now = func() time.Time { return now }
+	now = post.ResetAt.Add(time.Second)
+	rolled := post
+	rolled.At, rolled.ResetAt, rolled.Used, rolled.Source = now, now.Add(7*24*time.Hour), 0, "request"
+	require.NoError(t, store.Observe(ctx, account, rolled))
+	var usage float64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+	require.Equal(t, 19., usage, "a header alone cannot grant quota")
+	now = now.Add(time.Second)
+	rolled.At, rolled.Source = now, "query"
+	require.NoError(t, store.Observe(ctx, account, rolled))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+	require.Equal(t, 19., usage, "even a confirmed natural account reset cannot reset independent subscriptions")
+	events, err := store.ResetEvents(ctx, created.FleetID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, "independent_schedule", events[0].Source)
+	require.True(t, events[0].CachePending, "the local scheduled reset uses durable cache invalidation")
+	for cycle := 1; cycle <= 2; cycle++ {
+		// A late worker must preserve the original weekday/time, not drift by
+		// the worker delay. Account natural resets between ticks do nothing.
+		now = base.ResetAt.Add(time.Duration(cycle)*7*24*time.Hour + 3*time.Hour)
+		changed, err = store.ResetPreservedSchedules(ctx)
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+		require.Zero(t, usage)
+		state, e := store.ResetSync(ctx, created.FleetID)
+		require.NoError(t, e)
+		require.True(t, state.IndependentCycle)
+		require.Equal(t, base.ResetAt.Add(time.Duration(cycle+1)*7*24*time.Hour), *state.NextResetAt)
+		_, err = db.ExecContext(ctx, `UPDATE user_subscriptions SET weekly_usage_usd=19 WHERE id=$1`, sub)
+		require.NoError(t, err)
+		now = rolled.ResetAt.Add(time.Second)
+		rolled.At, rolled.ResetAt, rolled.Source = now, now.Add(7*24*time.Hour), "request"
+		require.NoError(t, store.Observe(ctx, account, rolled))
+		now = now.Add(time.Second)
+		rolled.At, rolled.Source = now, "query"
+		require.NoError(t, store.Observe(ctx, account, rolled))
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+		require.Equal(t, 19., usage)
+	}
+	// Clicking normal reset without a successful redemption cannot change mode.
+	noop, err := store.BeginCredit(ctx, user, account, "normal-without-credit", base.Identity)
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, noop, "no_credit", 0, []byte(`{"code":"no_credit","windows_reset":0}`)))
+	stillIndependent, err := store.ResetSync(ctx, created.FleetID)
+	require.NoError(t, err)
+	require.True(t, stillIndependent.IndependentCycle)
+	// A confirmed extra upstream reset cancels the independent cadence and
+	// restores following. This is the existing early-reset detection signal.
+	now = now.Add(time.Hour)
+	rolled.At, rolled.Used = now, 30
+	require.NoError(t, store.Observe(ctx, account, rolled))
+	now = now.Add(time.Hour)
+	rolled.At, rolled.Used, rolled.ResetAt, rolled.Source = now, 0, now.Add(7*24*time.Hour), "request"
+	require.NoError(t, store.Observe(ctx, account, rolled))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+	require.Equal(t, 19., usage)
+	now = now.Add(time.Second)
+	rolled.At, rolled.Source = now, "query"
+	require.NoError(t, store.Observe(ctx, account, rolled))
+	state, err := store.ResetSync(ctx, created.FleetID)
+	require.NoError(t, err)
+	require.False(t, state.IndependentCycle)
+	require.Nil(t, state.IndependentResetDueAt)
+	require.WithinDuration(t, rolled.ResetAt, *state.NextResetAt, time.Microsecond)
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+	require.Zero(t, usage)
+	// The old subscription deadline no longer grants a second reset.
+	_, err = db.ExecContext(ctx, `UPDATE user_subscriptions SET weekly_usage_usd=19 WHERE id=$1`, sub)
+	require.NoError(t, err)
+	now = base.ResetAt.Add(3*7*24*time.Hour + time.Second)
+	changed, err = store.ResetPreservedSchedules(ctx)
+	require.NoError(t, err)
+	require.False(t, changed)
+	// Subsequent natural resets follow the upstream again.
+	now = rolled.ResetAt.Add(time.Second)
+	rolled.At, rolled.ResetAt, rolled.Source = now, now.Add(7*24*time.Hour), "request"
+	require.NoError(t, store.Observe(ctx, account, rolled))
+	now = now.Add(time.Second)
+	rolled.At, rolled.Source = now, "query"
+	require.NoError(t, store.Observe(ctx, account, rolled))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+	require.Zero(t, usage)
+	// A later ordinary reset explicitly supersedes an independent schedule.
+	now = now.Add(time.Minute)
+	independent, err := store.BeginIndependentCredit(ctx, user, account, "then-normal-reset", base.Identity)
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, independent, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
+	normal, err := store.BeginCredit(ctx, user, account, "normal-overrides-held-schedule", base.Identity)
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, normal, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
+	state, err = store.ResetSync(ctx, created.FleetID)
+	require.NoError(t, err)
+	require.Nil(t, state.IndependentResetDueAt)
+	require.False(t, state.IndependentResetPending)
+	_, err = db.ExecContext(ctx, `UPDATE user_subscriptions SET weekly_usage_usd=31 WHERE id=$1`, sub)
+	require.NoError(t, err)
+	now = rolled.ResetAt.Add(2*7*24*time.Hour + time.Second)
+	changed, err = store.ResetPreservedSchedules(ctx)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&usage))
+	require.Equal(t, 31., usage, "a canceled preserved schedule cannot clear later usage")
+	// Exercise the real worker ticker after restart with an overdue promised
+	// deadline and an unavailable upstream. The local refresh must still run.
+	overdue, err := store.BeginIndependentCredit(ctx, user, account, "worker-overdue-independent", base.Identity)
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteCredit(ctx, overdue, "reset", 1, []byte(`{"code":"reset","windows_reset":1}`)))
+	accounts := repository.NewAccountRepository(client, db, nil)
+	unavailable := func(string) (*req.Client, error) { return nil, fmt.Errorf("isolated test: upstream unavailable") }
+	quota := service.NewOpenAIQuotaService(accounts, nil, service.NewOpenAITokenProvider(accounts, nil, nil), unavailable, nil)
+	flushed := make(chan struct{}, 1)
+	worker := service.NewFleetResetSyncService(store, quota, func(context.Context) {
+		select {
+		case flushed <- struct{}{}:
+		default:
+		}
+	})
+	t.Cleanup(worker.Stop)
+	require.Eventually(t, func() bool {
+		var current float64
+		e := db.QueryRowContext(ctx, `SELECT weekly_usage_usd FROM user_subscriptions WHERE id=$1`, sub).Scan(&current)
+		return e == nil && current == 0
+	}, 5*time.Second, 20*time.Millisecond, "the running worker must honor the old deadline without an upstream response")
+	select {
+	case <-flushed:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled refresh must flush subscription caches")
+	}
+	state, err = store.ResetSync(ctx, created.FleetID)
+	require.NoError(t, err)
+	require.True(t, state.IndependentCycle)
+	require.WithinDuration(t, rolled.ResetAt.Add(3*7*24*time.Hour), *state.NextResetAt, time.Microsecond, "missed weeks are skipped without changing the original cadence")
+}

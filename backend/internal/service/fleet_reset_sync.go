@@ -408,6 +408,11 @@ func (s *FleetResetSyncService) executeCredit(ctx context.Context, op *jackfleet
 }
 
 func (s *FleetResetSyncService) runPending(ctx context.Context) {
+	if changed, err := s.store.ResetPreservedSchedules(ctx); err != nil {
+		slog.Warn("fleet_independent_schedule_failed")
+	} else if changed {
+		s.flush(ctx)
+	}
 	if op, err := s.store.ClaimCredit(ctx); err == nil && op != nil {
 		_, _ = s.executeCredit(ctx, op)
 	}
