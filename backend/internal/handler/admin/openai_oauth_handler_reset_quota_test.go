@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -525,5 +526,30 @@ func TestNewOpenAIOAuthHandlerKeepsNilQuotaCapabilitiesGuarded(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, nil))
 		require.Equal(t, http.StatusBadRequest, recorder.Code, "%s %s", tc.method, tc.path)
+	}
+}
+
+func TestOpenAIResetQuotaRejectsUnsafeIndependentRequestsBeforeSpending(t *testing.T) {
+	for _, tc := range []struct {
+		body   string
+		status int
+	}{
+		{`{"independent_reset":"yes"}`, http.StatusBadRequest},
+		{`{"independent_reset":`, http.StatusBadRequest},
+		{`{"independent_reset":true}`, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			quota := successfulOpenAIQuotaWorkflowStub()
+			handler := &OpenAIOAuthHandler{quotaService: quota}
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			router.POST("/accounts/:id/reset-quota", handler.ResetQuota)
+			request := httptest.NewRequest(http.MethodPost, "/accounts/42/reset-quota", strings.NewReader(tc.body))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			require.Zero(t, quota.resetCalls, "never silently fall back to a following reset")
+		})
 	}
 }

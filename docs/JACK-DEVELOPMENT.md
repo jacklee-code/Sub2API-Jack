@@ -136,8 +136,8 @@ The setting defaults to off; migration does not adopt or reset any fleet.
 
 Normal gateway response snapshots (including the existing WebSocket/header
 paths), genuine admin usage reads and successful manual reset-credit operations
-feed the Jack observer. There is no periodic upstream polling. A confirmed
-seven-day rollover, or an early drop from at least 5% used to at most 1%, clears
+feed the Jack observer. There is no periodic upstream polling. In upstream-follow
+mode, a confirmed seven-day rollover, or an early drop from at least 5% used to at most 1%, clears
 current members' daily/weekly/monthly subscription counters. Detection queues and
 wakes an immediate usage-only confirmation query, without a fixed waiting period.
 An early drop is confirmed when the query differs from the first low sample by
@@ -174,6 +174,71 @@ fleet mutations commit together. The regular account recovery/display refresh
 cannot discard a successful redemption. The panel distinguishes credit usage
 from pending fleet cache synchronization. No automatic-credit configuration is
 changed by this feature.
+
+The account reset confirmation also offers **Independent reset**. This is a
+per-redemption choice (`POST .../reset-quota` with `independent_reset: true`).
+The fleet's synchronization stays enabled while its weekly cycle becomes
+independent; the account's automatic-credit setting is unchanged. The button
+defaults to normal fleet synchronization. The same idempotency
+key cannot switch modes; the panel persists and locks the selected mode while
+retrying an unresolved redemption. Without the fleet service, an independent
+request fails before consuming a credit instead of falling back to a normal reset.
+
+A successful independent redemption preserves all fleet usage **and the members'
+original weekly refresh cadence indefinitely**. It cancels older reset candidates under
+the fleet transaction lock and persists two separate values: the promised member
+deadline and the observed post-credit account cycle. Repeated independent resets
+do not postpone the already preserved member deadline.
+
+The existing worker checks the preserved deadline locally. At that time it resets
+current members' daily/weekly/monthly counters exactly once, using the same fleet
+transaction, revision, history and cache-invalidation path as normal resets. This
+requires no successful upstream query and survives restart. Each refresh advances
+the member deadline by seven days from its original boundary, never from worker
+execution time. Multiple missed periods grant one current allowance. Local ticks
+leave upstream observations and candidates intact. Confirmed natural account
+rollovers update that detector but do not reset members or change their cadence.
+Fleets that have never used independent reset keep their existing upstream-follow
+behavior. The admin panel displays the current cycle mode and the member deadline.
+
+A successful **normal** account credit reset, or a confirmed **early** upstream
+reset, clears the independent cadence and resumes following the account. This
+includes an official extra reset granted to the reference account; it does not
+require a worldwide event or matching resets on other accounts. A failed
+or zero-window credit redemption cannot change mode. Local manual fleet quota resets
+keep the cadence; explicitly disabling synchronization or selecting a new source
+reconfigures the policy as before. The early-reset signal is the existing quota
+drop plus a separate authenticated query, evaluated per reference account.
+Usage observations confirm the extra reset, not its cause: automatic credit
+redemption or redemption in another client can present the same signal. The
+known independent redemption is excluded by the observation guard below.
+
+A durable observation guard prevents the independent credit from being detected
+again. Old/in-flight samples and headers alone cannot establish the post-credit
+baseline. A fresh query below 5% rebaselines without resetting members. A high
+query instead records the account cycle without granting quota or changing the
+preserved member deadline; plan/deadline changes alone do not re-arm early-drop
+detection. A later rollover of that recorded cycle follows normal detection and
+query confirmation even if no low sample was ever obtained, updating the detector
+without changing the independent subscription cadence. Thus a failed or busy
+post-reset query cannot indefinitely block the detector at the old account cycle. If no
+usable account observation exists at all, unseen historical resets cannot be
+reconstructed; the preserved member deadline is still honored locally. No idle
+upstream polling is added, and failed/no-op redemptions create no new guard.
+
+Manual and independent redemptions keep the existing upstream-selected-credit
+request: they send the persisted redemption id and omit `credit_id`. This matches
+the ordinary manual button; it does not implement local expiry sorting. OpenAI's
+[public protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/ConsumeAccountRateLimitResetCreditParams.ts)
+says omission selects the next available credit, without specifying expiry order.
+The separate automatic-credit service explicitly selects and targets the earliest
+expiry. No real reset credit is consumed to test either flow.
+
+Migrations `008_independent_account_reset.sql` and
+`009_independent_reset_schedule.sql` are additive. Before rolling back to a binary
+without this support, resolve pending independent credit operations, observation
+guards and independent schedules (or disable the affected fleet synchronization).
+An older binary does not enforce these states or execute the independent schedule.
 
 Jack tables store source configuration, observations, jobs, redemption operations
 and reset events. Detection, manual fleet resets, transfers and redemption results

@@ -317,9 +317,13 @@ func (s *FleetResetSyncService) runJobs() {
 
 // TryFleetManualCredit retains the old handler seam for mocks and deployments
 // without fleet management; production always has this service installed.
-func TryFleetManualCredit(ctx context.Context, actor, account int64, key string) (*OpenAIQuotaResetResult, bool, error) {
+func TryFleetManualCredit(ctx context.Context, actor, account int64, key string, independentReset ...bool) (*OpenAIQuotaResetResult, bool, error) {
+	independent := len(independentReset) > 0 && independentReset[0]
 	s := currentFleetResetService()
 	if s == nil {
+		if independent {
+			return nil, true, infraerrors.ServiceUnavailable("FLEET_RESET_UNAVAILABLE", "Independent reset requires fleet synchronization to be available")
+		}
 		return nil, false, nil
 	}
 	source, err := s.accounts.GetByID(ctx, account)
@@ -329,7 +333,12 @@ func TryFleetManualCredit(ctx context.Context, actor, account int64, key string)
 	if source == nil {
 		return nil, true, infraerrors.BadRequest("FLEET_CREDIT_REJECTED", "Account not found")
 	}
-	op, err := s.store.BeginCredit(ctx, actor, account, key, fleetAccountIdentity(source))
+	var op *jackfleet.CreditOperation
+	if independent {
+		op, err = s.store.BeginIndependentCredit(ctx, actor, account, key, fleetAccountIdentity(source))
+	} else {
+		op, err = s.store.BeginCredit(ctx, actor, account, key, fleetAccountIdentity(source))
+	}
 	if err != nil {
 		return nil, true, err
 	}
@@ -399,6 +408,11 @@ func (s *FleetResetSyncService) executeCredit(ctx context.Context, op *jackfleet
 }
 
 func (s *FleetResetSyncService) runPending(ctx context.Context) {
+	if changed, err := s.store.ResetPreservedSchedules(ctx); err != nil {
+		slog.Warn("fleet_independent_schedule_failed")
+	} else if changed {
+		s.flush(ctx)
+	}
 	if op, err := s.store.ClaimCredit(ctx); err == nil && op != nil {
 		_, _ = s.executeCredit(ctx, op)
 	}

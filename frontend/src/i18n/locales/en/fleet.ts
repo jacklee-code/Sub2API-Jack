@@ -1,11 +1,19 @@
 export default {
   fleet: {
+    independentReset: "Independent reset",
+    independentResetHint: "Reset only this OpenAI account and keep fleet usage. Fleets keep their original weekly schedule through natural account resets. A normal credit reset or confirmed early upstream reset resumes following the account.",
+    creditRetryModeLocked: "The previous redemption is unresolved. Retrying keeps its operation and reset mode.",
+    creditIndependent: "Account reset independently; fleet usage and the original weekly schedule preserved.",
+
     syncSettings: "Follow ChatGPT resets",
     syncHint: "Follow the selected account’s 7d resets and successful manual reset credits. Clears all current members’ daily, weekly and monthly usage.",
     syncEnabled: "Enable automatic synchronization",
     syncAccount: "Reference account",
     syncObserved: "Last upstream observation",
-    syncNext: "Next upstream weekly reset",
+    syncNext: "Next fleet weekly reset",
+    syncIndependentCycle: "Original subscription schedule",
+    syncUpstreamCycle: "Following upstream account schedule",
+    syncIndependentScheduled: "Original subscription schedule refresh",
     syncStatus: "Synchronization",
     syncEvents: "Reset history",
     syncNoEvents: "No synchronized resets yet",
