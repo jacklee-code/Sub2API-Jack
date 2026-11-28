@@ -84,10 +84,17 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		return resolved
 	}
 
+	pricingModel := input.Model
 	var chPricing *ChannelModelPricing
 	if input.GroupID != nil && r.channelService != nil {
 		chPricing = r.lookupChannelPricingNormalized(ctx, *input.GroupID, input.Model)
 		if chPricing != nil {
+			if strings.HasSuffix(strings.ToLower(input.Model), "-fast") {
+				mapping := r.channelService.ResolveChannelMapping(ctx, *input.GroupID, input.Model)
+				if mapping.OpenAIServiceTier != "" {
+					pricingModel = mapping.MappedModel
+				}
+			}
 			mode := chPricing.BillingMode
 			if mode == "" {
 				mode = BillingModeToken
@@ -106,7 +113,7 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	}
 
 	// 1. 获取基础定价
-	basePricing, source := r.resolveBasePricing(input.Model)
+	basePricing, source := r.resolveBasePricing(pricingModel)
 
 	resolved := &ResolvedPricing{
 		Mode:                   BillingModeToken,

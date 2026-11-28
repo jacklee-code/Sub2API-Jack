@@ -77,6 +77,25 @@ automation boundaries, fresh-clone setup, validation and failure handling.
 not maintain separate release rules. This guide contains the implementation and
 recovery details referenced by that workflow.
 
+## OpenAI Fast model aliases
+
+An OpenAI channel can publish a Fast option beside a base model in the Codex
+model picker. Add an exact mapping such as `gpt-6.2-sol-fast` to
+`gpt-6.2-sol` and a token price card for the exact alias with a positive
+**Fast Multiplier**. Supported models are GPT-6.2 Sol and Astra, GPT-6.1
+Sol and Terra, and GPT-6 Sol, Luna and Astra. Each alias can have a different
+multiplier. Without explicit unit prices the alias uses the base model's
+standard token prices from the pricing catalog. Existing group model pricing
+still takes precedence.
+
+Allow both model names if the group has a model allowlist. Keep the group's
+forced speed and free Fast settings off when selling Fast as an optional tier.
+The same group and API key can then use both names. The alias forwards the
+base model with `service_tier=priority` and uses the alias price card. Explicit
+Fast on the base model uses the base model's pricing. Set Codex's provider
+`model_catalog_url` to the gateway's `/v1/models` when the client needs to opt
+into remote model discovery. The existing Fast/Flex policy still applies.
+
 ## Gateway concurrency wakeups
 
 The HTTP gateway wait helper subscribes to process-local user/account slot

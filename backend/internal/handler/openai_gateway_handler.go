@@ -587,6 +587,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	forwardBody, err = channelMapping.ApplyOpenAIServiceTier(forwardBody)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Unable to apply model service tier")
+		return
+	}
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
 	c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(
@@ -3149,6 +3154,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping})
 				return mapping.MappedModel, nil
+			},
+			RequestServiceTier: func(turn int) string {
+				if snapshot := turnChannelMapping.Load(); snapshot != nil && snapshot.turn == turn {
+					return snapshot.mapping.OpenAIServiceTier
+				}
+				return ""
 			},
 			BeforeTurn: func(turn int) error {
 				// turn==1 的会话屏蔽已由握手层检查覆盖；连接内 flag 只拦截后续 turn。
