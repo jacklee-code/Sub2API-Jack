@@ -151,6 +151,10 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 	if err != nil {
 		return nil, false, fmt.Errorf("initialize group configured Codex models: %w", err)
 	}
+	body, _, err = s.addOpenAIChannelFastAliases(ctx, group, body)
+	if err != nil {
+		return nil, false, fmt.Errorf("add OpenAI Fast aliases: %w", err)
+	}
 	body, _, err = mergeConfiguredCodexModelsManifest(
 		body,
 		nil,
@@ -196,8 +200,12 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 	if !group.CodexModelsManifestConfig.Enabled {
 		configuredModels = openAIConfiguredCodexModelIDsForGroup(visible, group)
 	}
+	body, addedAlias, err := s.addOpenAIChannelFastAliases(ctx, group, manifest.Body)
+	if err != nil {
+		return fmt.Errorf("add OpenAI Fast aliases: %w", err)
+	}
 	body, changed, err := mergeConfiguredCodexModelsManifest(
-		manifest.Body,
+		body,
 		configuredModels,
 		group.ModelAllowlist.Models,
 		group.ModelAllowlistEnabled(),
@@ -217,7 +225,7 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		return fmt.Errorf("filter retired Codex models: %w", err)
 	}
 	body = filtered
-	if changed || retired {
+	if changed || retired || addedAlias {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
 	}

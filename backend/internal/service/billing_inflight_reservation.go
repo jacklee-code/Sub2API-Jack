@@ -567,7 +567,15 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 		if pricing == nil {
 			return 0
 		}
-		return (float64(inputTokens)*pricing.InputPricePerToken + float64(outputTokens)*pricing.OutputPricePerToken) * textRate
+		rate := textRate
+		if strings.EqualFold(model, req.Model) && strings.HasSuffix(strings.ToLower(model), "-fast") &&
+			apiKey != nil && apiKey.GroupID != nil && d.resolveMapping != nil {
+			mapping := d.resolveMapping(ctx, *apiKey.GroupID, model)
+			if mapping.OpenAIServiceTier != "" {
+				rate *= math.Max(1, configuredServiceTierMultiplier(mapping.OpenAIServiceTier, pricing))
+			}
+		}
+		return (float64(inputTokens)*pricing.InputPricePerToken + float64(outputTokens)*pricing.OutputPricePerToken) * rate
 	}
 
 	var cost float64

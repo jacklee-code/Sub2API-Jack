@@ -111,6 +111,7 @@ type ChannelMappingResult struct {
 	ChannelID          int64  // 渠道 ID（0 = 无渠道关联）
 	Mapped             bool   // 是否发生了映射
 	BillingModelSource string // 计费模型来源（"requested" / "upstream" / "channel_mapped" / "response_model"）
+	OpenAIServiceTier  string // Explicit OpenAI speed alias, scoped to this channel.
 }
 
 // BuildModelMappingChain 根据映射结果和上游实际模型构建映射链描述。
@@ -619,6 +620,10 @@ func resolveMapping(lk *channelLookup, groupID int64, model string) ChannelMappi
 	if mapped := lookupMappingAcrossPlatforms(lk.cache, groupID, lk.platform, modelLower); mapped != "" {
 		result.MappedModel = mapped
 		result.Mapped = true
+		if openAIChannelFastAliasTarget(lk, groupID, modelLower) != "" {
+			result.OpenAIServiceTier = OpenAIFastTierPriority
+			result.BillingModelSource = BillingModelSourceRequested
+		}
 	}
 
 	return result
