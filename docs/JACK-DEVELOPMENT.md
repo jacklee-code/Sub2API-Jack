@@ -94,7 +94,9 @@ The same group and API key can then use both names. The alias forwards the
 base model with `service_tier=priority` and uses the alias price card. Explicit
 Fast on the base model uses the base model's pricing. Set Codex's provider
 `model_catalog_url` to the gateway's `/v1/models` when the client needs to opt
-into remote model discovery. The existing Fast/Flex policy still applies.
+into remote model discovery. The standard `GET /v1/models` also includes a
+configured Fast alias when its base model is available in the requesting
+group. The existing Fast/Flex policy still applies.
 
 ## Gateway concurrency wakeups
 
