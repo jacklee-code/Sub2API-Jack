@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -32,6 +33,30 @@ func openAIChannelFastAliasTarget(lk *channelLookup, groupID int64, model string
 		return ""
 	}
 	return base
+}
+
+// AppendOpenAIChannelFastModelIDs augments the standard /models list using
+// the current channel and the already available base models for this group.
+func (s *GatewayService) AppendOpenAIChannelFastModelIDs(ctx context.Context, groupID *int64, modelIDs []string) []string {
+	if groupID == nil || s.channelService == nil || len(modelIDs) == 0 {
+		return modelIDs
+	}
+	lk, err := s.channelService.lookupGroupChannel(ctx, *groupID)
+	if err != nil || lk == nil || len(lk.channel.ModelMapping[PlatformOpenAI]) == 0 {
+		return modelIDs
+	}
+
+	var aliases []string
+	for _, base := range modelIDs {
+		alias := base + "-fast"
+		if base != "" && openAIChannelFastAliasTarget(lk, *groupID, alias) == base && !slices.Contains(modelIDs, alias) {
+			aliases = append(aliases, alias)
+		}
+	}
+	if len(aliases) == 0 {
+		return modelIDs
+	}
+	return append(slices.Clone(modelIDs), aliases...)
 }
 
 // ApplyOpenAIServiceTier materializes the requested alias before the normal

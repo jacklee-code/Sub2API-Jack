@@ -67,6 +67,16 @@ func TestOpenAIChannelFastAliasRoutingAndPricing(t *testing.T) {
 	}
 	require.Empty(t, channels.ResolveChannelMapping(ctx, groupID+1, "gpt-6.2-sol-fast").OpenAIServiceTier)
 
+	standardList := &GatewayService{channelService: channels}
+	visibleModels := []string{"gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-luna"}
+	require.Equal(t, []string{"gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-luna", "gpt-6.2-sol-fast"},
+		standardList.AppendOpenAIChannelFastModelIDs(ctx, &groupID, visibleModels))
+	otherGroupID := groupID + 1
+	require.Equal(t, visibleModels, standardList.AppendOpenAIChannelFastModelIDs(ctx, &otherGroupID, visibleModels))
+	alreadyListed := []string{"gpt-6.2-sol", "gpt-6.2-sol-fast"}
+	require.Equal(t, alreadyListed, standardList.AppendOpenAIChannelFastModelIDs(ctx, &groupID, alreadyListed))
+	require.Nil(t, standardList.AppendOpenAIChannelFastModelIDs(ctx, &groupID, nil))
+
 	group := &Group{ID: groupID, Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{
 		Enabled: true, Models: []string{"gpt-6.2-sol", "gpt-6.2-sol-fast", "gpt-6.2-astra"},
 	}}

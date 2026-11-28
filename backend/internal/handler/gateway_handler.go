@@ -1195,6 +1195,9 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	if platform == service.PlatformOpenAI {
+		availableModels = h.gatewayService.AppendOpenAIChannelFastModelIDs(c.Request.Context(), groupID, availableModels)
+	}
 	if platform == service.PlatformAnthropic {
 		var group *service.Group
 		if apiKey != nil {
